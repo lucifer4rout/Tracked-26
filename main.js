@@ -1,4 +1,5 @@
-const { app, BrowserWindow, shell, ipcMain } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, dialog } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const path = require("path");
 
 // The custom scheme Google/Supabase will hand control back to after login.
@@ -79,8 +80,76 @@ app.on("open-url", (event, url) => {
   handleDeepLink(url);
 });
 
+// ---------- Auto-update (GitHub Releases via electron-updater) ----------
+function sendUpdateStatus(status) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-status", status);
+  }
+}
+
+function setupAutoUpdater() {
+  // Don't bother checking in dev — there's no packaged app-update.yml /
+  // version metadata to compare against when running via `npm start`.
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = true;         // download silently in the background
+  autoUpdater.autoInstallOnAppQuit = true; // fallback: install on next natural quit even if the prompt is dismissed
+
+  autoUpdater.on("checking-for-update", () => {
+    sendUpdateStatus({ status: "checking" });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    sendUpdateStatus({ status: "downloading", version: info.version });
+  });
+
+  autoUpdater.on("update-not-available", () => {
+    sendUpdateStatus({ status: "up-to-date" });
+  });
+
+  autoUpdater.on("error", (err) => {
+    console.error("Auto-update error:", err);
+    sendUpdateStatus({ status: "error", message: err.message });
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    sendUpdateStatus({ status: "progress", percent: progress.percent });
+  });
+
+  autoUpdater.on("update-downloaded", async (info) => {
+    sendUpdateStatus({ status: "ready", version: info.version });
+
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: "info",
+      buttons: ["Restart now", "Later"],
+      defaultId: 0,
+      title: "Update ready",
+      message: `Tracked 26 v${info.version} is ready to install.`,
+      detail: "Restart now to apply the update, or it'll install automatically next time you quit."
+    });
+
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+
+  // Check on launch, then every few hours in case the app is left open for days.
+  autoUpdater.checkForUpdates().catch(err => console.error("Initial update check failed:", err));
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch(err => console.error("Periodic update check failed:", err));
+  }, 4 * 60 * 60 * 1000);
+}
+
+// Renderer can also trigger a manual check (e.g. an "Check for updates" button in the profile drawer).
+ipcMain.on("check-for-updates", () => {
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdates().catch(err => console.error("Manual update check failed:", err));
+  } else {
+    sendUpdateStatus({ status: "dev-mode" });
+  }
+});
+
 app.whenReady().then(() => {
   createWindow();
+  setupAutoUpdater();
 
   // Windows/Linux: if THIS launch of the app was itself triggered by the
   // OS opening a tracked26://... link (cold start, not already running).
