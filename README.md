@@ -50,21 +50,23 @@ Not limited to the default structure — add your own subjects and chapters to m
 
 ## 🖥️ Screenshots
 
+## 🖥️ Screenshots
+
 ### Dashboard
 
-![Tracked 26 Dashboard](assets/screenshots sample/dashboard.png)
+![Tracked 26 Dashboard](assets/screenshots/dashboard.png)
 
 ### Chapter Progress
 
-![Tracked 26 Physics](assets/screenshots sample/physics.png)
+![Tracked 26 Physics](assets/screenshots/physics.png)
 
 ### Study Consistency
 
-![Tracked 26 Study Heatmap](assets/screenshots sample/heatmap.png)
+![Tracked 26 Study Heatmap](assets/screenshots/heatmap.png)
 
 ### Monthly Goals
 
-![Tracked 26 Monthly Targets](assets/screenshots sample/targets.png)
+![Tracked 26 Monthly Targets](assets/screenshots/targets.png)
 
 ---
 
