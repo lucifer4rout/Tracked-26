@@ -1,0 +1,55 @@
+{
+  "name": "tracked26",
+  "version": "1.0.0",
+  "description": "JEE 2027 Progress Tracker — desktop app",
+  "author": "Swastik Rout",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "release": "electron-builder --publish always"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "build": {
+    "appId": "com.tracked26.app",
+    "productName": "Tracked 26",
+    "files": [
+      "main.js",
+      "preload.js",
+      "app/**/*",
+      "build/icon.ico",
+      "build/icon.png"
+    ],
+    "icon": "build/icon",
+    "protocols": [
+      {
+        "name": "Tracked 26 Auth Callback",
+        "schemes": [
+          "tracked26"
+        ]
+      }
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "lucifer4rout",
+      "repo": "tracked26"
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "icon": "build/icon.icns"
+    },
+    "win": {
+      "icon": "build/icon.ico"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png"
+    }
+  }
+}

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tracked 26 · Progress Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="particlesBg" class="particles-container"></div>
+  <div class="glow"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">Tracked.</span>
+      <span class="brand-year">26</span>
+    </div>
+    <nav class="tabs" id="subjectTabs">
+      <button class="tab active" data-view="dashboard">Dashboard</button>
+      <!-- subject tabs injected by JS -->
+    </nav>
+    <button class="add-subject-btn" id="addSubjectBtn" title="Add subject">+ Subject</button>
+    <button class="profile-trigger" id="profileTriggerBtn" title="Open profile">
+      <span class="profile-trigger-avatar" id="profileTriggerAvatar">
+        <img id="profileTriggerAvatarImg" alt="" hidden>
+        <svg id="profileTriggerFallback" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="8" r="3.4" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M5 19c1.2-3.6 4-5.4 7-5.4s5.8 1.8 7 5.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </span>
+    </button>
+  </header>
+
+  <main>
+
+    <!-- ===================== DASHBOARD VIEW ===================== -->
+    <section id="dashboardView" class="view">
+
+      <section class="countdown-hero">
+        <div class="countdown-label">TIME UNTIL JEE MAINS</div>
+        <div class="countdown-clock" id="countdownClock">
+          <div class="clock-seg"><span class="clock-num" id="daysNum">000</span><span class="clock-unit">days</span></div>
+          <div class="clock-sep">:</div>
+          <div class="clock-seg"><span class="clock-num" id="hoursNum">00</span><span class="clock-unit">hrs</span></div>
+          <div class="clock-sep">:</div>
+          <div class="clock-seg"><span class="clock-num" id="minsNum">00</span><span class="clock-unit">min</span></div>
+        </div>
+        <div class="countdown-pulse"><span class="dot"></span>tracking live</div>
+        <div class="exam-date-row">
+          <label for="examDate">Exam date</label>
+          <input type="date" id="examDate">
+        </div>
+      </section>
+
+      <section class="overview-grid" id="overviewGrid">
+        <!-- subject overview cards injected by JS -->
+      </section>
+
+      <section class="heatmap-panel">
+        <div class="heatmap-head">
+          <h2>Study Heatmap</h2>
+          <span class="heatmap-hint">only today can be logged — click it to level up</span>
+        </div>
+        <div class="heatmap-month-tabs" id="heatmapMonthTabs"></div>
+        <div class="heatmap-calendar">
+          <div class="heatmap-weekdays" id="heatmapWeekdays"></div>
+          <div class="heatmap-days" id="heatmapDays"></div>
+        </div>
+        <div class="heatmap-legend">
+          <span>Less</span>
+          <span class="legend-swatch" data-level="0"></span>
+          <span class="legend-swatch" data-level="1"></span>
+          <span class="legend-swatch" data-level="2"></span>
+          <span class="legend-swatch" data-level="3"></span>
+          <span class="legend-swatch" data-level="4"></span>
+          <span>More</span>
+        </div>
+      </section>
+
+      <section class="targets-panel">
+        <div class="targets-head">
+          <h2>Monthly Targets</h2>
+          <button class="ghost-btn" id="addMonthBtn">+ Month</button>
+        </div>
+        <div class="targets-grid" id="targetsGrid">
+          <!-- month cards injected by JS -->
+        </div>
+      </section>
+
+    </section>
+
+    <!-- ===================== SUBJECT VIEW (template, cloned per subject) ===================== -->
+    <section id="subjectViewTemplate" class="view subject-view" hidden>
+      <div class="subject-head">
+        <h2 class="subject-title"></h2>
+        <div class="subject-progress-wrap">
+          <div class="subject-progress-bar"><div class="subject-progress-fill"></div></div>
+          <span class="subject-progress-pct">0%</span>
+        </div>
+        <button class="ghost-btn add-chapter-btn">+ Chapter</button>
+      </div>
+      <div class="table-scroll">
+        <table class="chapter-table">
+          <thead>
+            <tr>
+              <th class="col-chapter">Chapter</th>
+              <th>Lectures</th>
+              <th>Notes</th>
+              <th>Short Notes</th>
+              <th>Revision</th>
+              <th>Tests</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody class="chapter-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="subjectViews"></div>
+
+  <!-- ===================== PROFILE PANEL (slides in from the right) ===================== -->
+  <div class="profile-scrim" id="profileScrim"></div>
+  <aside class="profile-drawer" id="profileDrawer" aria-hidden="true">
+    <div class="profile-drawer-head">
+      <div>
+        <div class="modal-eyebrow" id="drawerEyebrow">YOUR PROFILE</div>
+        <h2 id="drawerHeading">Set up your tracker</h2>
+      </div>
+      <button class="drawer-close-btn" id="drawerCloseBtn" title="Close" hidden>✕</button>
+    </div>
+    <p class="modal-sub" id="drawerSub">This sets your exam countdown and personalizes the tracker.</p>
+
+    <div class="profile-avatar-row">
+      <button class="profile-avatar-big" id="avatarPickBtn" title="Change profile picture">
+        <img id="avatarImg" alt="" hidden>
+        <svg id="avatarFallback" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="8" r="3.6" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M4.6 19.4c1.3-3.9 4.3-5.8 7.4-5.8s6.1 1.9 7.4 5.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <span class="avatar-edit-badge">✎</span>
+      </button>
+      <div class="profile-avatar-actions">
+        <button type="button" class="ghost-btn avatar-upload-btn" id="avatarUploadBtn">Upload photo</button>
+        <button type="button" class="avatar-remove-btn" id="avatarRemoveBtn" hidden>Remove</button>
+      </div>
+      <input type="file" id="avatarFileInput" accept="image/*" hidden>
+    </div>
+
+    <div class="modal-field">
+      <label>Current stage</label>
+      <div class="pill-group" id="classPillGroup">
+        <button type="button" class="pill" data-value="11">Class 11</button>
+        <button type="button" class="pill" data-value="12">Class 12</button>
+        <button type="button" class="pill" data-value="dropper1">1st Dropper</button>
+        <button type="button" class="pill" data-value="dropper2">2nd Dropper</button>
+      </div>
+    </div>
+
+    <div class="modal-field">
+      <label for="targetYearSelect">Target JEE year</label>
+      <select id="targetYearSelect"></select>
+    </div>
+
+    <div class="modal-field">
+      <label>Theme</label>
+      <div class="pill-group" id="themePillGroup">
+        <button type="button" class="pill" data-value="light">Light</button>
+        <button type="button" class="pill" data-value="dark">Dark</button>
+        <button type="button" class="pill" data-value="system">System</button>
+      </div>
+    </div>
+
+    <button class="modal-submit" id="onboardSubmit" disabled>Start Tracking</button>
+
+    <div class="sync-section">
+      <div class="sync-account" id="syncAccount" hidden>
+        <img id="syncAccountAvatar" class="sync-account-avatar" alt="">
+        <div class="sync-account-info">
+          <span class="sync-account-name" id="syncAccountName"></span>
+          <button type="button" class="sync-signout-btn" id="syncSignOutBtn">Sign out</button>
+        </div>
+      </div>
+      <button type="button" class="sync-btn" id="syncBtn">
+        <span class="sync-btn-icon">⟳</span> <span id="syncBtnLabel">Sign in with Google to sync</span>
+      </button>
+      <p class="sync-note" id="syncNote">Sync saves your progress to your Google account so you can pick it up on another device.</p>
+    </div>
+  </aside>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="script.js"></script>
+  <script type="module" src="particles-init.js"></script>
+</body>
+</html>
