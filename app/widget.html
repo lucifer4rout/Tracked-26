@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tracked 26 Widget</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="widget.css">
+</head>
+<body>
+  <div class="widget-root" id="widgetRoot">
+    <button class="widget-close" id="widgetCloseBtn" title="Hide widget">✕</button>
+    <div class="widget-label" id="widgetLabel">TIME UNTIL JEE MAINS</div>
+    <div class="widget-clock">
+      <div class="widget-seg">
+        <span class="widget-num" id="wDays">000</span>
+        <span class="widget-unit">days</span>
+      </div>
+      <span class="widget-sep">:</span>
+      <div class="widget-seg">
+        <span class="widget-num" id="wHours">00</span>
+        <span class="widget-unit">hrs</span>
+      </div>
+      <span class="widget-sep">:</span>
+      <div class="widget-seg">
+        <span class="widget-num" id="wMins">00</span>
+        <span class="widget-unit">min</span>
+      </div>
+    </div>
+  </div>
+  <script src="widget.js"></script>
+</body>
+</html>

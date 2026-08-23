@@ -8,11 +8,6 @@
 const STORAGE_KEY = "jee-tracker-state-v1";
 
 /* ---------------- Supabase config ---------------- */
-// TODO: paste your Supabase project's *anon/public* API key here.
-// Find it in your Supabase dashboard: Project Settings → API → "anon public".
-// This key is safe to expose in client-side code — it only works within
-// the permissions your Row Level Security policies allow (see the SQL
-// setup notes provided alongside this file).
 const SUPABASE_URL = "https://jxrourlbqhfojxrfimff.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp4cm91cmxicWhmb2p4cmZpbWZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNzY3MTksImV4cCI6MjEwMjk1MjcxOX0.uA5lSZ0MxtX8Yxyyx265VfCSlDvC8vHHqF5TwTg6WQg";
 
@@ -25,7 +20,7 @@ const IS_ELECTRON = typeof window !== "undefined" && !!window.electronAPI;
 // - Web: just come back to whatever page we're already on.
 const SUPABASE_REDIRECT_URL = IS_ELECTRON ? "tracked26://auth-callback" : window.location.href;
 
-const supabaseClient = (SUPABASE_ANON_KEY && SUPABASE_ANON_KEY !== "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp4cm91cmxicWhmb2p4cmZpbWZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNzY3MTksImV4cCI6MjEwMjk1MjcxOX0.uA5lSZ0MxtX8Yxyyx265VfCSlDvC8vHHqF5TwTg6WQg" && window.supabase)
+const supabaseClient = (SUPABASE_ANON_KEY && window.supabase)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         // PKCE is required for the Electron deep-link flow (no client secret,
@@ -40,6 +35,11 @@ const DEFAULT_STATE = {
   examDate: "2027-01-24",
   profile: null,  // { classLevel: "11"|"12"|"dropper1"|"dropper2", targetYear: 2027 } — null until onboarding completes
   theme: "system", // "light" | "dark" | "system"
+  settings: {
+    minimizeToTray: true,      // Electron only — ignored on web
+    showDesktopWidget: false,  // Electron only — ignored on web
+    startOnStartup: false      // Electron only — ignored on web
+  },
   avatar: null,   // data URL string for the profile picture, or null
   updatedAt: 0,   // ms timestamp of the last local change — used to decide sync direction
   subjects: {
@@ -96,11 +96,13 @@ function loadState() {
     const parsed = JSON.parse(raw);
     const base = structuredClone(DEFAULT_STATE);
     // Merge with defaults so older saved data (from before a feature like the
-    // heatmap, theme, or avatar existed) doesn't crash the app when a field is missing.
+    // heatmap, theme, settings, or avatar existed) doesn't crash the app when
+    // a field is missing.
     return {
       examDate: parsed.examDate ?? base.examDate,
       profile: parsed.profile ?? null,
       theme: parsed.theme ?? base.theme,
+      settings: { ...base.settings, ...(parsed.settings || {}) },
       avatar: parsed.avatar ?? null,
       updatedAt: parsed.updatedAt ?? 0,
       subjects: parsed.subjects ?? base.subjects,
@@ -177,6 +179,7 @@ function setTheme(theme) {
   saveState();
   applyTheme(theme);
   syncThemePills();
+  pushWidgetState();
 }
 
 function syncThemePills() {
@@ -188,7 +191,10 @@ function syncThemePills() {
 // Keep things in sync if the OS-level theme changes while "system" is selected.
 if (systemThemeQuery) {
   const handleSystemThemeChange = () => {
-    if (state.theme === "system") applyTheme("system");
+    if (state.theme === "system") {
+      applyTheme("system");
+      pushWidgetState();
+    }
   };
   if (systemThemeQuery.addEventListener) {
     systemThemeQuery.addEventListener("change", handleSystemThemeChange);
@@ -750,6 +756,18 @@ async function performSync() {
       updateBrandYear();
       tickCountdown();
       renderAvatar();
+      if (IS_ELECTRON && window.electronAPI.setMinimizeToTray) {
+        window.electronAPI.setMinimizeToTray(state.settings.minimizeToTray);
+      }
+      if (IS_ELECTRON && window.electronAPI.setShowWidget) {
+        window.electronAPI.setShowWidget(state.settings.showDesktopWidget);
+        applyShowWidgetToUI();
+      }
+      if (IS_ELECTRON && window.electronAPI.setStartOnStartup) {
+        window.electronAPI.setStartOnStartup(state.settings.startOnStartup);
+        applyStartOnStartupToUI();
+      }
+      pushWidgetState();
       setSyncNote("Synced ✓ — pulled the newer copy from your account.", "is-success");
     } else {
       // Local is newer (or nothing remote yet) — push it up.
@@ -885,6 +903,7 @@ document.getElementById("onboardSubmit").addEventListener("click", () => {
   document.getElementById("examDate").value = state.examDate;
   updateBrandYear();
   tickCountdown();
+  pushWidgetState();
   // state.profile is now set, so the normal close path (which guards against
   // dismissing the mandatory first-run setup) will happily close it.
   closeProfileDrawer();
@@ -893,8 +912,102 @@ document.getElementById("onboardSubmit").addEventListener("click", () => {
 document.getElementById("profileTriggerBtn").addEventListener("click", openProfileDrawer);
 document.getElementById("drawerCloseBtn").addEventListener("click", closeProfileDrawer);
 document.getElementById("profileScrim").addEventListener("click", closeProfileDrawer);
+
+/* ---------------- Settings drawer ---------------- */
+function applyMinimizeToTrayToUI() {
+  document.getElementById("minimizeToTrayToggle").checked = !!state.settings.minimizeToTray;
+}
+
+function applyShowWidgetToUI() {
+  document.getElementById("showWidgetToggle").checked = !!state.settings.showDesktopWidget;
+}
+
+function applyStartOnStartupToUI() {
+  document.getElementById("startOnStartupToggle").checked = !!state.settings.startOnStartup;
+}
+
+function openSettingsDrawer() {
+  document.getElementById("trayToggleField").hidden = !IS_ELECTRON;
+  document.getElementById("widgetToggleField").hidden = !IS_ELECTRON;
+  document.getElementById("startupToggleField").hidden = !IS_ELECTRON;
+  document.getElementById("settingsWebNote").hidden = IS_ELECTRON;
+  applyMinimizeToTrayToUI();
+  applyShowWidgetToUI();
+  applyStartOnStartupToUI();
+
+  document.getElementById("settingsDrawer").classList.add("open");
+  document.getElementById("settingsDrawer").setAttribute("aria-hidden", "false");
+  document.getElementById("settingsScrim").classList.add("open");
+}
+
+function closeSettingsDrawer() {
+  document.getElementById("settingsDrawer").classList.remove("open");
+  document.getElementById("settingsDrawer").setAttribute("aria-hidden", "true");
+  document.getElementById("settingsScrim").classList.remove("open");
+}
+
+document.getElementById("settingsTriggerBtn").addEventListener("click", openSettingsDrawer);
+document.getElementById("settingsCloseBtn").addEventListener("click", closeSettingsDrawer);
+document.getElementById("settingsScrim").addEventListener("click", closeSettingsDrawer);
+
+document.getElementById("minimizeToTrayToggle").addEventListener("change", e => {
+  state.settings.minimizeToTray = e.target.checked;
+  saveState();
+  if (IS_ELECTRON && window.electronAPI.setMinimizeToTray) {
+    window.electronAPI.setMinimizeToTray(state.settings.minimizeToTray);
+  }
+});
+
+// ---------- Desktop widget toggle ----------
+document.getElementById("showWidgetToggle").addEventListener("change", e => {
+  state.settings.showDesktopWidget = e.target.checked;
+  saveState();
+  if (IS_ELECTRON && window.electronAPI.setShowWidget) {
+    window.electronAPI.setShowWidget(e.target.checked);
+    if (e.target.checked) pushWidgetState();
+  }
+});
+
+// ---------- Start on PC startup toggle ----------
+// This was previously missing entirely — the checkbox visually reflected
+// state.settings.startOnStartup (via applyStartOnStartupToUI) but nothing
+// listened for the user changing it, so it was never saved or sent to
+// main.js. Wired up the same way minimizeToTray / showWidget are above.
+document.getElementById("startOnStartupToggle").addEventListener("change", e => {
+  state.settings.startOnStartup = e.target.checked;
+  saveState();
+  if (IS_ELECTRON && window.electronAPI.setStartOnStartup) {
+    window.electronAPI.setStartOnStartup(state.settings.startOnStartup);
+  }
+});
+
+// Pushes the current examDate/theme/targetYear into the floating widget
+// window, if it's Electron and the widget is (or is about to be) on.
+// Call this any time one of those three values changes.
+function pushWidgetState() {
+  if (!IS_ELECTRON || !window.electronAPI.sendWidgetState) return;
+  window.electronAPI.sendWidgetState({
+    examDate: state.examDate,
+    theme: resolveTheme(state.theme),
+    targetYear: state.profile ? state.profile.targetYear : null
+  });
+}
+
+// If the widget's own "✕" was clicked, its Settings toggle should reflect
+// that it's now off.
+if (IS_ELECTRON && window.electronAPI.onWidgetClosedExternally) {
+  window.electronAPI.onWidgetClosedExternally(() => {
+    state.settings.showDesktopWidget = false;
+    saveState();
+    applyShowWidgetToUI();
+  });
+}
+
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") closeProfileDrawer();
+  if (e.key === "Escape") {
+    closeProfileDrawer();
+    closeSettingsDrawer();
+  }
 });
 
 /* ---------------- Add subject / month ---------------- */
@@ -919,6 +1032,7 @@ document.getElementById("examDate").addEventListener("change", e => {
   state.examDate = e.target.value;
   saveState();
   tickCountdown();
+  pushWidgetState();
 });
 
 /* ---------------- Utils ---------------- */
@@ -946,6 +1060,22 @@ safe(tickCountdown, "tickCountdown");
 setInterval(() => safe(tickCountdown, "tickCountdown interval"), 30000);
 safe(() => switchView("dashboard"), "switchView");
 safe(initAuth, "initAuth");
+safe(() => {
+  if (IS_ELECTRON && window.electronAPI.setMinimizeToTray) {
+    window.electronAPI.setMinimizeToTray(state.settings.minimizeToTray);
+  }
+}, "syncMinimizeToTray");
+safe(() => {
+  if (IS_ELECTRON && window.electronAPI.setShowWidget) {
+    window.electronAPI.setShowWidget(state.settings.showDesktopWidget);
+    if (state.settings.showDesktopWidget) pushWidgetState();
+  }
+}, "syncShowWidget");
+safe(() => {
+  if (IS_ELECTRON && window.electronAPI.setStartOnStartup) {
+    window.electronAPI.setStartOnStartup(state.settings.startOnStartup);
+  }
+}, "syncStartOnStartup");
 
 if (!state.profile) {
   safe(openProfileDrawer, "openProfileDrawer");

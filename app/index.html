@@ -16,13 +16,19 @@
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark">Tracked.</span>
-      <span class="brand-year">26</span>
+      <span class="brand-year" id="brandYear">26</span>
     </div>
     <nav class="tabs" id="subjectTabs">
       <button class="tab active" data-view="dashboard">Dashboard</button>
       <!-- subject tabs injected by JS -->
     </nav>
     <button class="add-subject-btn" id="addSubjectBtn" title="Add subject">+ Subject</button>
+    <button class="settings-trigger" id="settingsTriggerBtn" title="Settings">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M19.4 13.5c.04-.33.06-.66.06-1s-.02-.67-.06-1l2.02-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.38.96a7.6 7.6 0 0 0-1.73-1l-.36-2.53a.5.5 0 0 0-.5-.43h-3.84a.5.5 0 0 0-.5.43l-.36 2.53c-.63.24-1.22.58-1.73 1l-2.38-.96a.5.5 0 0 0-.6.22L2.7 9.28a.5.5 0 0 0 .12.64L4.84 11.5c-.04.33-.06.66-.06 1s.02.67.06 1L2.82 15.08a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.31.6.22l2.38-.96c.51.42 1.1.76 1.73 1l.36 2.53a.5.5 0 0 0 .5.43h3.84a.5.5 0 0 0 .5-.43l.36-2.53c.63-.24 1.22-.58 1.73-1l2.38.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64L19.4 13.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+      </svg>
+    </button>
     <button class="profile-trigger" id="profileTriggerBtn" title="Open profile">
       <span class="profile-trigger-avatar" id="profileTriggerAvatar">
         <img id="profileTriggerAvatarImg" alt="" hidden>
@@ -192,6 +198,75 @@
       </button>
       <p class="sync-note" id="syncNote">Sync saves your progress to your Google account so you can pick it up on another device.</p>
     </div>
+  </aside>
+
+  <!-- ===================== SETTINGS PANEL ===================== -->
+  <div class="profile-scrim" id="settingsScrim"></div>
+  <aside class="profile-drawer settings-drawer" id="settingsDrawer" aria-hidden="true">
+    <div class="profile-drawer-head">
+      <div>
+        <div class="modal-eyebrow">APP SETTINGS</div>
+        <h2>Settings</h2>
+      </div>
+      <button class="drawer-close-btn" id="settingsCloseBtn" title="Close">✕</button>
+    </div>
+    <p class="modal-sub">Preferences for how the app behaves on this device.</p>
+
+    <div class="modal-field settings-toggle-field" id="trayToggleField" hidden>
+      <div class="settings-toggle-row">
+        <div class="settings-toggle-text">
+          <label>Minimize to tray on close</label>
+          <p class="settings-toggle-desc">Keep Tracked 26 running in the background when you close the window, instead of quitting. Use the tray icon to reopen it or quit for real.</p>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="minimizeToTrayToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-field settings-toggle-field" id="widgetToggleField" hidden>
+      <div class="settings-toggle-row">
+        <div class="settings-toggle-text">
+          <label>Show desktop widget</label>
+          <p class="settings-toggle-desc">A small floating countdown clock that sits on your desktop, like a Rainmeter skin. Drag it anywhere; it sits on the desktop and goes behind whatever window you're actively using.</p>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="showWidgetToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-field settings-toggle-field" id="startupToggleField" hidden>
+      <div class="settings-toggle-row">
+        <div class="settings-toggle-text">
+          <label>Start on PC startup</label>
+          <p class="settings-toggle-desc">Automatically launch Tracked 26 when your PC starts. The main window won't pop up — it starts minimized in the tray.</p>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="startOnStartupToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="modal-field settings-toggle-field" id="startupToggleField" hidden>
+      <div class="settings-toggle-row">
+        <div class="settings-toggle-text">
+          <label>Start on PC startup</label>
+          <p class="settings-toggle-desc">Automatically launch Tracked 26 when you log in. It starts hidden in the tray — the window won't pop open on its own.</p>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="startOnStartupToggle">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <p class="modal-sub settings-web-note" id="settingsWebNote" hidden>
+      Desktop-only settings like tray behavior, the desktop widget, and startup launch aren't available in the browser version — grab the desktop app to use them.
+    </p>
   </aside>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>

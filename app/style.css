@@ -162,6 +162,26 @@ body {
 .add-subject-btn:hover, .ghost-btn:hover { border-color: var(--amber); }
 .add-subject-btn:active, .ghost-btn:active { transform: scale(0.97); }
 
+/* Settings trigger — matches the profile avatar button styling */
+.settings-trigger {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: border-color 0.15s, transform 0.1s, color 0.15s;
+}
+.settings-trigger:hover { border-color: var(--amber-dim); color: var(--text); transform: translateY(-1px) rotate(20deg); }
+.settings-trigger:active { transform: scale(0.96); }
+.settings-trigger svg { width: 19px; height: 19px; }
+
 /* Profile trigger — round avatar button, far right of the topbar */
 .profile-trigger {
   background: var(--panel-2);
@@ -1032,3 +1052,76 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .modal-submit:disabled { opacity: 0.4; cursor: not-allowed; }
 .modal-submit:not(:disabled):hover { opacity: 0.92; }
 .modal-submit:not(:disabled):active { transform: scale(0.98); }
+
+/* ---------- Settings panel ---------- */
+.settings-toggle-field { margin-bottom: 18px; }
+
+.settings-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-toggle-text label {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.settings-toggle-desc {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  background: var(--muted);
+  border-radius: 50%;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(18px);
+  background: var(--bg);
+}
+.toggle-switch input:focus-visible + .toggle-slider {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.settings-web-note { margin-top: 4px; }

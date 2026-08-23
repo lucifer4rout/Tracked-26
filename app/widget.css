@@ -1,0 +1,118 @@
+:root {
+  --bg: #0b0d12;
+  --panel: #14171f;
+  --border: #262b36;
+  --text: #e8e9ed;
+  --muted: #9aa1ad;
+  --amber: #ffc93c;
+}
+:root[data-theme="light"] {
+  --panel: #ffffff;
+  --border: #dedcd6;
+  --text: #17181c;
+  --muted: #6b6f78;
+  --amber: #d9910c;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.widget-root {
+  position: relative;
+  -webkit-app-region: drag; /* whole card is draggable */
+  padding: 18px 22px 16px;
+  text-align: center;
+}
+
+.widget-close {
+  -webkit-app-region: no-drag;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.widget-root:hover .widget-close { opacity: 1; }
+.widget-close:hover { color: var(--text); border-color: var(--amber); }
+
+.widget-label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  margin-bottom: 14px;
+}
+
+.widget-clock {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+
+.widget-seg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  min-width: 76px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.widget-num {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: 30px;
+  color: var(--amber);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.widget-unit {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+  margin-top: 5px;
+  text-transform: uppercase;
+}
+
+.widget-sep {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 20px;
+  color: var(--muted);
+  opacity: 0.5;
+  align-self: center;
+}
