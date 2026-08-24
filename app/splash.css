@@ -1,0 +1,91 @@
+:root {
+  --bg: #0b0d12;
+  --panel: #14171f;
+  --border: #262b36;
+  --text: #e8e9ed;
+  --muted: #7a8290;
+  --amber: #ffc93c;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Sora", sans-serif;
+}
+
+.splash-card {
+  width: 320px;
+  padding: 30px 28px 26px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.splash-brand {
+  font-weight: 800;
+  font-size: 19px;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 22px;
+}
+.splash-brand-mark { color: var(--text); }
+.splash-brand-year { color: var(--amber); font-size: 13px; font-weight: 700; }
+
+.splash-spinner {
+  width: 30px;
+  height: 30px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--amber);
+  animation: splashSpin 0.8s linear infinite;
+}
+
+@keyframes splashSpin {
+  to { transform: rotate(360deg); }
+}
+
+.splash-status {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  min-height: 16px;
+}
+
+.splash-progress-track {
+  margin-top: 16px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.splash-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--amber);
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-spinner { animation: none; border-top-color: var(--amber); }
+}
