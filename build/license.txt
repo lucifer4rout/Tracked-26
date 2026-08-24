@@ -1,0 +1,26 @@
+TRACKED 26 — END USER LICENSE AGREEMENT
+
+Copyright (c) 2026 Swastik Rout. All rights reserved.
+
+By installing or using Tracked 26, you agree to the following terms:
+
+1. LICENSE
+   You are granted a personal, non-exclusive, non-transferable license
+   to install and use this software for your own JEE exam preparation.
+
+2. NO WARRANTY
+   This software is provided "as is", without warranty of any kind,
+   express or implied, including but not limited to warranties of
+   merchantability, fitness for a particular purpose, and
+   non-infringement.
+
+3. DATA
+   Your progress data is stored locally on this device and, if you
+   choose to sign in, synced to your own Google account via Supabase.
+   No data is sold or shared with third parties.
+
+4. LIMITATION OF LIABILITY
+   In no event shall the author be liable for any claim, damages, or
+   other liability arising from the use of this software.
+
+Click "I Agree" to accept these terms and continue installation.

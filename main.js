@@ -151,6 +151,13 @@ function createTray() {
     },
     { type: "separator" },
     {
+      label: "Help",
+      click: () => {
+        shell.openExternal("https://tracked-26-website.pages.dev");
+      }
+    },
+    { type: "separator" },
+    {
       label: "Quit",
       click: () => {
         isQuitting = true;
@@ -282,22 +289,10 @@ ipcMain.on("set-minimize-to-tray", (_event, value) => {
 // mode it would register the Electron binary itself, launching a generic
 // Electron shell at login instead of this app, which is more confusing
 // than useful.
-//
-// NOTE: there used to be a second, conflicting registration of this same
-// listener further down the file (missing the isPackaged guard, and
-// unconditionally passing openAsHidden/--hidden). Both listeners fired on
-// every toggle, and the second silently overrode the first — in dev mode
-// that meant it would still try to register a login item pointing at the
-// bare Electron binary. Removed; this is the only handler now.
 ipcMain.on("set-start-on-startup", (_event, value) => {
   if (!app.isPackaged) return;
   app.setLoginItemSettings({
     openAtLogin: !!value,
-    // Honored natively on macOS. On Windows/Linux the OS ignores it, so
-    // we also pass our own --hidden flag below and check for it ourselves
-    // via `startedHidden` at the top of this file / the macOS branch in
-    // app.whenReady().
-    openAsHidden: true,
     // --hidden tells this same file (see `startedHidden` above) to skip
     // showing the window — it should only appear in the tray at login.
     args: value ? ["--hidden"] : []
@@ -328,7 +323,7 @@ function createWidgetWindow() {
     // app you focus, including your editor — which is what was covering
     // VS Code. Without this flag it behaves like a normal window: it
     // sits on the desktop and goes behind whatever you're actively using,
-    // which is the actual "desktop widget" feel being asked for.
+        // which is the actual "desktop widget" feel being asked for.
     alwaysOnTop: false,
     skipTaskbar: true,
     backgroundColor: "#00000000",
@@ -414,7 +409,50 @@ ipcMain.on("widget-close-clicked", () => {
   }
 });
 
+// ---------- Start on PC startup ----------
+
+// Renderer tells us whenever the "Start on PC startup" setting changes
+// (including once on startup, so this is correct even before the user
+// opens Settings). openAsHidden is honored natively on macOS; on
+// Windows/Linux it's ignored by the OS, so we pass our own --hidden flag
+// and check for it ourselves in startedHidden above / the macOS branch
+// in app.whenReady() below.
+ipcMain.on("set-start-on-startup", (_event, value) => {
+  app.setLoginItemSettings({
+    openAtLogin: !!value,
+    openAsHidden: true,
+    args: ["--hidden"]
+  });
+});
+
 app.whenReady().then(() => {
+  // Removes the default File/Edit/View/Window/Help menu bar. On Windows
+  // and Linux this hides it completely. On macOS the menu bar itself
+  // can't be removed (it's part of the OS), so a minimal one is kept
+  // there instead, just enough for Cmd+Q / Cmd+C / Cmd+V to still work.
+  if (process.platform === "darwin") {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      {
+        label: app.name,
+        submenu: [
+          { role: "about" },
+          { type: "separator" },
+          { role: "quit" }
+        ]
+      },
+      {
+        label: "Edit",
+        submenu: [
+          { role: "copy" },
+          { role: "paste" },
+          { role: "selectAll" }
+        ]
+      }
+    ]));
+  } else {
+    Menu.setApplicationMenu(null);
+  }
+
   // macOS reports a hidden login-item launch directly instead of via argv.
   if (process.platform === "darwin") {
     startedHidden = startedHidden || app.getLoginItemSettings().wasOpenedAsHidden;

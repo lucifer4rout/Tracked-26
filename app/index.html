@@ -23,13 +23,13 @@
       <!-- subject tabs injected by JS -->
     </nav>
     <button class="add-subject-btn" id="addSubjectBtn" title="Add subject">+ Subject</button>
-    <button class="settings-trigger" id="settingsTriggerBtn" title="Settings">
+    <button class="settings-trigger" id="settingsTriggerBtn" title="Settings" aria-label="Open settings">
       <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" stroke="currentColor" stroke-width="1.6"/>
         <path d="M19.4 13.5c.04-.33.06-.66.06-1s-.02-.67-.06-1l2.02-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.38.96a7.6 7.6 0 0 0-1.73-1l-.36-2.53a.5.5 0 0 0-.5-.43h-3.84a.5.5 0 0 0-.5.43l-.36 2.53c-.63.24-1.22.58-1.73 1l-2.38-.96a.5.5 0 0 0-.6.22L2.7 9.28a.5.5 0 0 0 .12.64L4.84 11.5c-.04.33-.06.66-.06 1s.02.67.06 1L2.82 15.08a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.31.6.22l2.38-.96c.51.42 1.1.76 1.73 1l.36 2.53a.5.5 0 0 0 .5.43h3.84a.5.5 0 0 0 .5-.43l.36-2.53c.63-.24 1.22-.58 1.73-1l2.38.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64L19.4 13.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
       </svg>
     </button>
-    <button class="profile-trigger" id="profileTriggerBtn" title="Open profile">
+    <button class="profile-trigger" id="profileTriggerBtn" title="Open profile" aria-label="Open profile">
       <span class="profile-trigger-avatar" id="profileTriggerAvatar">
         <img id="profileTriggerAvatarImg" alt="" hidden>
         <svg id="profileTriggerFallback" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -65,6 +65,25 @@
         <!-- subject overview cards injected by JS -->
       </section>
 
+      <!-- Streak + weekly recap, derived from the heatmap and checkbox activity -->
+      <section class="weekly-panel">
+        <div class="weekly-panel-head"><h2>This Week</h2></div>
+        <div class="weekly-stats" id="weeklySummaryPanel">
+          <!-- populated by JS -->
+        </div>
+      </section>
+
+      <!-- Chapters marked "revised" 20+ days ago — hidden entirely when there's nothing overdue -->
+      <section class="nudges-panel" id="revisionNudgesPanel" hidden>
+        <div class="nudges-head">
+          <h2>Needs Revision</h2>
+          <span class="nudges-hint">not revised in 20+ days</span>
+        </div>
+        <div class="nudges-list" id="revisionNudgesList">
+          <!-- populated by JS -->
+        </div>
+      </section>
+
       <section class="heatmap-panel">
         <div class="heatmap-head">
           <h2>Study Heatmap</h2>
@@ -83,6 +102,27 @@
           <span class="legend-swatch" data-level="3"></span>
           <span class="legend-swatch" data-level="4"></span>
           <span>More</span>
+        </div>
+      </section>
+
+      <!-- Mock test score log + trend chart -->
+      <section class="mock-tests-panel">
+        <div class="mock-tests-head"><h2>Mock Tests</h2></div>
+
+        <form class="mock-test-form" id="mockTestForm">
+          <input type="date" id="testDateInput" aria-label="Test date">
+          <select id="testSubjectSelect" aria-label="Test subject"></select>
+          <input type="text" id="testTopicInput" placeholder="Topic (optional)" aria-label="Test topic">
+          <input type="number" id="testScoreInput" placeholder="Score" min="0" step="any" aria-label="Score obtained">
+          <input type="number" id="testMaxScoreInput" placeholder="Out of" min="1" step="any" aria-label="Maximum score">
+          <button type="button" class="mock-test-add-btn" id="addTestBtn">+ Add</button>
+        </form>
+
+        <svg class="mock-test-chart" id="mockTestChart" hidden></svg>
+        <p class="mock-test-chart-empty" id="mockTestChartEmpty">Log two or more tests to see your trend.</p>
+
+        <div class="mock-test-list" id="mockTestList">
+          <!-- populated by JS -->
         </div>
       </section>
 
@@ -139,12 +179,12 @@
         <div class="modal-eyebrow" id="drawerEyebrow">YOUR PROFILE</div>
         <h2 id="drawerHeading">Set up your tracker</h2>
       </div>
-      <button class="drawer-close-btn" id="drawerCloseBtn" title="Close" hidden>✕</button>
+      <button class="drawer-close-btn" id="drawerCloseBtn" title="Close" aria-label="Close profile panel" hidden>✕</button>
     </div>
     <p class="modal-sub" id="drawerSub">This sets your exam countdown and personalizes the tracker.</p>
 
     <div class="profile-avatar-row">
-      <button class="profile-avatar-big" id="avatarPickBtn" title="Change profile picture">
+      <button class="profile-avatar-big" id="avatarPickBtn" title="Change profile picture" aria-label="Change profile picture">
         <img id="avatarImg" alt="" hidden>
         <svg id="avatarFallback" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <circle cx="12" cy="8" r="3.6" stroke="currentColor" stroke-width="1.5"/>
@@ -198,6 +238,16 @@
       </button>
       <p class="sync-note" id="syncNote">Sync saves your progress to your Google account so you can pick it up on another device.</p>
     </div>
+
+    <!-- Local backup — matters most for anyone not signed into Google sync -->
+    <div class="backup-section">
+      <div class="backup-buttons">
+        <button type="button" class="ghost-btn" id="exportBackupBtn">Download backup (.json)</button>
+        <button type="button" class="ghost-btn" id="importBackupBtn">Restore from backup</button>
+      </div>
+      <input type="file" id="backupFileInput" accept="application/json" hidden>
+      <p class="sync-note" id="backupNote">Keep a local copy of your progress — handy if you're not signed in, or switching browsers or devices.</p>
+    </div>
   </aside>
 
   <!-- ===================== SETTINGS PANEL ===================== -->
@@ -208,7 +258,7 @@
         <div class="modal-eyebrow">APP SETTINGS</div>
         <h2>Settings</h2>
       </div>
-      <button class="drawer-close-btn" id="settingsCloseBtn" title="Close">✕</button>
+      <button class="drawer-close-btn" id="settingsCloseBtn" title="Close" aria-label="Close settings">✕</button>
     </div>
     <p class="modal-sub">Preferences for how the app behaves on this device.</p>
 
@@ -242,19 +292,6 @@
       <div class="settings-toggle-row">
         <div class="settings-toggle-text">
           <label>Start on PC startup</label>
-          <p class="settings-toggle-desc">Automatically launch Tracked 26 when your PC starts. The main window won't pop up — it starts minimized in the tray.</p>
-        </div>
-        <label class="toggle-switch">
-          <input type="checkbox" id="startOnStartupToggle">
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-    </div>
-
-    <div class="modal-field settings-toggle-field" id="startupToggleField" hidden>
-      <div class="settings-toggle-row">
-        <div class="settings-toggle-text">
-          <label>Start on PC startup</label>
           <p class="settings-toggle-desc">Automatically launch Tracked 26 when you log in. It starts hidden in the tray — the window won't pop open on its own.</p>
         </div>
         <label class="toggle-switch">
@@ -268,6 +305,9 @@
       Desktop-only settings like tray behavior, the desktop widget, and startup launch aren't available in the browser version — grab the desktop app to use them.
     </p>
   </aside>
+
+  <!-- Undo toasts for destructive actions (chapter / month / target / test removal) -->
+  <div class="toast-container" id="toastContainer" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="script.js"></script>

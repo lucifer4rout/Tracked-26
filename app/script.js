@@ -8,8 +8,8 @@
 const STORAGE_KEY = "jee-tracker-state-v1";
 
 /* ---------------- Supabase config ---------------- */
-const SUPABASE_URL = "SITE-SPECIFIC-URL"; // e.g. "https://abc123.supabase.co"
-const SUPABASE_ANON_KEY = "PASTE-KEY-FROM-SUPABASE"; // e.g. "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+const SUPABASE_URL = "https://jxrourlbqhfojxrfimff.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp4cm91cmxicWhmb2p4cmZpbWZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNzY3MTksImV4cCI6MjEwMjk1MjcxOX0.uA5lSZ0MxtX8Yxyyx265VfCSlDvC8vHHqF5TwTg6WQg";
 
 // True when running inside the Electron shell (preload.js exposes this).
 // The web build never has window.electronAPI, so this is always false there.
@@ -73,7 +73,7 @@ const DEFAULT_STATE = {
       "Probability"
     ]
   },
-  progress: {},   // "Subject::Chapter" -> { lectures, notes, shortNotes, revision, tests, status }
+  progress: {},   // "Subject::Chapter" -> { lectures, notes, shortNotes, revision, tests, status, lastRevisedDate }
   heatmap: {},  // "YYYY-MM-DD" -> 0-4 intensity level
   months: [
     { name: "Aug", items: [
@@ -86,30 +86,37 @@ const DEFAULT_STATE = {
       { text: "Chemistry — Organic basics", done: false },
       { text: "Maths — Coordinate geometry", done: false }
     ]}
-  ]
+  ],
+  testLog: [],      // [{ id, date, subject, topic, score, maxScore }] — mock/practice test scores
+  completions: []   // [{ date, subject, chapter, field }] — log of check-offs, used for streak/weekly stats
 };
+
+// Shared by loadState() and the backup-restore flow, so both fill in
+// missing fields (from before a feature existed) the same way.
+function normalizeState(parsed) {
+  const base = structuredClone(DEFAULT_STATE);
+  parsed = parsed || {};
+  return {
+    examDate: parsed.examDate ?? base.examDate,
+    profile: parsed.profile ?? null,
+    theme: parsed.theme ?? base.theme,
+    settings: { ...base.settings, ...(parsed.settings || {}) },
+    avatar: parsed.avatar ?? null,
+    updatedAt: parsed.updatedAt ?? 0,
+    subjects: parsed.subjects ?? base.subjects,
+    progress: parsed.progress ?? {},
+    heatmap: parsed.heatmap ?? {},
+    months: parsed.months ?? base.months,
+    testLog: parsed.testLog ?? [],
+    completions: parsed.completions ?? []
+  };
+}
 
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return structuredClone(DEFAULT_STATE);
-    const parsed = JSON.parse(raw);
-    const base = structuredClone(DEFAULT_STATE);
-    // Merge with defaults so older saved data (from before a feature like the
-    // heatmap, theme, settings, or avatar existed) doesn't crash the app when
-    // a field is missing.
-    return {
-      examDate: parsed.examDate ?? base.examDate,
-      profile: parsed.profile ?? null,
-      theme: parsed.theme ?? base.theme,
-      settings: { ...base.settings, ...(parsed.settings || {}) },
-      avatar: parsed.avatar ?? null,
-      updatedAt: parsed.updatedAt ?? 0,
-      subjects: parsed.subjects ?? base.subjects,
-      progress: parsed.progress ?? {},
-      heatmap: parsed.heatmap ?? {},
-      months: parsed.months ?? base.months
-    };
+    return normalizeState(JSON.parse(raw));
   } catch (e) {
     console.error("Failed to load saved tracker state, starting fresh.", e);
     return structuredClone(DEFAULT_STATE);
@@ -132,8 +139,10 @@ function key(subject, chapter) { return `${subject}::${chapter}`; }
 function getProgress(subject, chapter) {
   const k = key(subject, chapter);
   if (!state.progress[k]) {
-    state.progress[k] = { lectures: false, notes: false, shortNotes: false, revision: false, tests: false };
+    state.progress[k] = { lectures: false, notes: false, shortNotes: false, revision: false, tests: false, lastRevisedDate: null };
   }
+  // Backward compat: older saved data won't have this field yet.
+  if (state.progress[k].lastRevisedDate === undefined) state.progress[k].lastRevisedDate = null;
   return state.progress[k];
 }
 
@@ -222,6 +231,297 @@ function tickCountdown() {
   document.getElementById("minsNum").textContent = String(mins).padStart(2, "0");
 }
 
+/* ---------------- Small utils ---------------- */
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function escapeAttr(str) { return escapeHtml(str); }
+
+function uid() {
+  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+}
+
+function fmtDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function todayStr() { return fmtDate(new Date()); }
+
+/* ---------------- Toast / undo ----------------
+   Generic toast with an optional action button. Used to give a short
+   "Undo" window after a confirmed delete, without building a full
+   notification stack — only one toast is shown at a time. */
+let toastTimeoutId = null;
+
+function showToast(message, actionLabel, actionFn, duration = 6000) {
+  const container = document.getElementById("toastContainer");
+  if (!container) return;
+  clearTimeout(toastTimeoutId);
+  container.innerHTML = "";
+
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.innerHTML = `
+    <span class="toast-msg">${escapeHtml(message)}</span>
+    ${actionFn ? `<button type="button" class="toast-action">${escapeHtml(actionLabel || "Undo")}</button>` : ""}
+    <button type="button" class="toast-dismiss" aria-label="Dismiss">✕</button>
+  `;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+
+  function remove() {
+    toast.classList.remove("show");
+    setTimeout(() => { if (toast.parentNode) toast.remove(); }, 200);
+  }
+  if (actionFn) {
+    toast.querySelector(".toast-action").addEventListener("click", () => {
+      actionFn();
+      remove();
+    });
+  }
+  toast.querySelector(".toast-dismiss").addEventListener("click", remove);
+  toastTimeoutId = setTimeout(remove, duration);
+}
+
+/* ---------------- Completion log (for streaks + weekly summary) ---------------- */
+function logCompletion(subject, chapter, field) {
+  state.completions.push({ date: todayStr(), subject, chapter, field });
+  pruneCompletions();
+}
+
+// Keep only the last ~90 days of completions — plenty for any weekly/monthly
+// view, and keeps localStorage from growing forever.
+function pruneCompletions() {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 90);
+  const cutoffStr = fmtDate(cutoff);
+  state.completions = state.completions.filter(c => c.date >= cutoffStr);
+}
+
+function computeStreak() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  // Today only counts once it's actually been logged — otherwise every
+  // streak would look "broken" first thing each morning. If today isn't
+  // logged yet, just start counting from yesterday instead.
+  if (!(state.heatmap[fmtDate(d)] > 0)) {
+    d.setDate(d.getDate() - 1);
+  }
+  let streak = 0;
+  while ((state.heatmap[fmtDate(d)] || 0) > 0) {
+    streak++;
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+}
+
+function renderWeeklySummary() {
+  const panel = document.getElementById("weeklySummaryPanel");
+  if (!panel) return;
+
+  const streak = computeStreak();
+
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 6); // last 7 days, including today
+  const weekAgoStr = fmtDate(weekAgo);
+  const todayS = todayStr();
+
+  const weekCompletions = state.completions.filter(c => c.date >= weekAgoStr && c.date <= todayS);
+  const byField = { lectures: 0, notes: 0, shortNotes: 0, revision: 0, tests: 0 };
+  weekCompletions.forEach(c => { if (byField[c.field] !== undefined) byField[c.field]++; });
+  const totalItems = Object.values(byField).reduce((a, b) => a + b, 0);
+
+  const fieldLabels = { lectures: "lectures", notes: "notes", shortNotes: "short notes", revision: "revisions", tests: "tests" };
+  const breakdown = Object.entries(byField)
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => `${v} ${fieldLabels[k]}`)
+    .join(" · ") || "nothing logged yet";
+
+  let daysStudied = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    if ((state.heatmap[fmtDate(d)] || 0) > 0) daysStudied++;
+  }
+
+  panel.innerHTML = `
+    <div class="weekly-stat">
+      <span class="weekly-stat-num">${streak}</span>
+      <span class="weekly-stat-label">day streak</span>
+    </div>
+    <div class="weekly-stat">
+      <span class="weekly-stat-num">${daysStudied}/7</span>
+      <span class="weekly-stat-label">days studied this week</span>
+    </div>
+    <div class="weekly-stat weekly-stat-wide">
+      <span class="weekly-stat-num">${totalItems}</span>
+      <span class="weekly-stat-label">items completed this week — ${escapeHtml(breakdown)}</span>
+    </div>
+  `;
+}
+
+/* ---------------- Revision nudges ---------------- */
+function getOverdueRevisions() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const results = [];
+  Object.keys(state.subjects).forEach(subject => {
+    state.subjects[subject].forEach(chapter => {
+      const p = getProgress(subject, chapter);
+      if (p.revision && p.lastRevisedDate) {
+        const revisedDate = new Date(p.lastRevisedDate + "T00:00:00");
+        const days = Math.floor((today - revisedDate) / (1000 * 60 * 60 * 24));
+        if (days >= 20) results.push({ subject, chapter, days });
+      }
+    });
+  });
+  results.sort((a, b) => b.days - a.days);
+  return results;
+}
+
+function renderRevisionNudges() {
+  const section = document.getElementById("revisionNudgesPanel");
+  const list = document.getElementById("revisionNudgesList");
+  if (!section || !list) return;
+
+  const overdue = getOverdueRevisions();
+  if (!overdue.length) {
+    section.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+  section.hidden = false;
+  list.innerHTML = overdue.slice(0, 8).map(o => `
+    <button type="button" class="nudge-row" data-subject="${escapeAttr(o.subject)}">
+      <span class="nudge-chapter">${escapeHtml(o.chapter)}</span>
+      <span class="nudge-subject">${escapeHtml(o.subject)}</span>
+      <span class="nudge-days">${o.days}d ago</span>
+    </button>
+  `).join("");
+  list.querySelectorAll(".nudge-row").forEach(el => el.addEventListener("click", () => {
+    switchView(el.dataset.subject);
+  }));
+}
+
+/* ---------------- Mock tests ---------------- */
+function populateTestSubjectOptions() {
+  const sel = document.getElementById("testSubjectSelect");
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = `<option value="Full Test">Full Test</option>` +
+    Object.keys(state.subjects).map(s => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join("");
+  if ([...sel.options].some(o => o.value === current)) sel.value = current;
+}
+
+function renderMockTestList() {
+  const listEl = document.getElementById("mockTestList");
+  if (!listEl) return;
+  const sorted = [...state.testLog].sort((a, b) => b.date.localeCompare(a.date));
+  if (!sorted.length) {
+    listEl.innerHTML = `<p class="mock-test-empty">No test scores logged yet — add your first one above.</p>`;
+    return;
+  }
+  listEl.innerHTML = sorted.slice(0, 12).map(t => {
+    const pct = t.maxScore > 0 ? Math.round((t.score / t.maxScore) * 100) : 0;
+    return `
+      <div class="mock-test-row">
+        <span class="mock-test-date">${escapeHtml(t.date)}</span>
+        <span class="mock-test-subject">${escapeHtml(t.subject)}${t.topic ? " · " + escapeHtml(t.topic) : ""}</span>
+        <span class="mock-test-score">${t.score}/${t.maxScore} <span class="mock-test-pct">(${pct}%)</span></span>
+        <button type="button" class="mock-test-remove" data-id="${escapeAttr(t.id)}" title="Remove entry" aria-label="Remove entry">✕</button>
+      </div>
+    `;
+  }).join("");
+  listEl.querySelectorAll(".mock-test-remove").forEach(el => el.addEventListener("click", e => {
+    removeTestEntryWithUndo(e.currentTarget.dataset.id);
+  }));
+}
+
+function renderMockTestChart() {
+  const svgEl = document.getElementById("mockTestChart");
+  const emptyEl = document.getElementById("mockTestChartEmpty");
+  if (!svgEl || !emptyEl) return;
+
+  const sorted = [...state.testLog].sort((a, b) => a.date.localeCompare(b.date));
+  if (sorted.length < 2) {
+    svgEl.innerHTML = "";
+    svgEl.hidden = true;
+    emptyEl.hidden = false;
+    return;
+  }
+  svgEl.hidden = false;
+  emptyEl.hidden = true;
+
+  const W = 600, H = 160, PAD = 24;
+  const points = sorted.map((t, i) => {
+    const x = PAD + (sorted.length === 1 ? 0 : (i / (sorted.length - 1)) * (W - PAD * 2));
+    const pct = t.maxScore > 0 ? Math.max(0, Math.min(100, (t.score / t.maxScore) * 100)) : 0;
+    const y = H - PAD - (pct / 100) * (H - PAD * 2);
+    return { x, y, pct, date: t.date };
+  });
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+  const dots = points.map(p =>
+    `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" class="mock-test-dot"><title>${escapeHtml(p.date)} — ${Math.round(p.pct)}%</title></circle>`
+  ).join("");
+
+  svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svgEl.setAttribute("preserveAspectRatio", "none");
+  svgEl.innerHTML = `
+    <line x1="${PAD}" y1="${H - PAD}" x2="${W - PAD}" y2="${H - PAD}" class="mock-test-axis" />
+    <path d="${pathD}" class="mock-test-line" fill="none" />
+    ${dots}
+  `;
+}
+
+function renderMockTests() {
+  populateTestSubjectOptions();
+  renderMockTestList();
+  renderMockTestChart();
+}
+
+function removeTestEntryWithUndo(id) {
+  const idx = state.testLog.findIndex(t => t.id === id);
+  if (idx === -1) return;
+  if (!confirm("Remove this test entry?")) return;
+  const removed = state.testLog[idx];
+  state.testLog.splice(idx, 1);
+  saveState();
+  renderMockTests();
+  showToast("Test entry removed.", "Undo", () => {
+    state.testLog.splice(idx, 0, removed);
+    saveState();
+    renderMockTests();
+  });
+}
+
+// Prevent Enter-to-submit from reloading the page — this "form" is really
+// just a grouped set of inputs, submission is handled by addTestBtn below.
+document.getElementById("mockTestForm").addEventListener("submit", e => e.preventDefault());
+
+document.getElementById("addTestBtn").addEventListener("click", () => {
+  const dateInput = document.getElementById("testDateInput");
+  const topicInput = document.getElementById("testTopicInput");
+  const scoreInput = document.getElementById("testScoreInput");
+  const maxScoreInput = document.getElementById("testMaxScoreInput");
+
+  const date = dateInput.value || todayStr();
+  const subject = document.getElementById("testSubjectSelect").value;
+  const topic = topicInput.value.trim();
+  const score = parseFloat(scoreInput.value);
+  const maxScore = parseFloat(maxScoreInput.value);
+
+  if (isNaN(score) || isNaN(maxScore) || maxScore <= 0 || score < 0) {
+    alert("Enter a valid score and a max score greater than 0.");
+    return;
+  }
+
+  state.testLog.push({ id: uid(), date, subject, topic, score, maxScore });
+  saveState();
+  topicInput.value = "";
+  scoreInput.value = "";
+  maxScoreInput.value = "";
+  renderMockTests();
+});
+
 /* ---------------- Rendering: Dashboard ---------------- */
 function renderOverviewGrid() {
   const grid = document.getElementById("overviewGrid");
@@ -243,6 +543,44 @@ function renderOverviewGrid() {
   });
 }
 
+/* ---------------- Rendering: Monthly targets ---------------- */
+// Set right before renderMonths() re-draws the grid, so the newly-added
+// month name / target input gets focused once it exists in the DOM.
+let pendingFocus = null;
+
+function removeMonthWithUndo(mi) {
+  const month = state.months[mi];
+  if (!month) return;
+  if (!confirm(`Remove "${month.name || "this month"}" and all its targets?`)) return;
+  const removedMonth = month;
+  const removedIndex = mi;
+  state.months.splice(mi, 1);
+  saveState();
+  renderMonths();
+  showToast("Month removed.", "Undo", () => {
+    state.months.splice(removedIndex, 0, removedMonth);
+    saveState();
+    renderMonths();
+  });
+}
+
+function removeMonthItemWithUndo(mi, ii) {
+  const month = state.months[mi];
+  if (!month || !month.items[ii]) return;
+  if (!confirm("Remove this target?")) return;
+  const removedItem = month.items[ii];
+  month.items.splice(ii, 1);
+  saveState();
+  renderMonths();
+  showToast("Target removed.", "Undo", () => {
+    if (state.months[mi]) {
+      state.months[mi].items.splice(ii, 0, removedItem);
+      saveState();
+      renderMonths();
+    }
+  });
+}
+
 function renderMonths() {
   const grid = document.getElementById("targetsGrid");
   grid.innerHTML = "";
@@ -252,13 +590,14 @@ function renderMonths() {
     const itemsHtml = month.items.map((item, ii) => `
       <div class="month-item">
         <input type="checkbox" data-mi="${mi}" data-ii="${ii}" class="month-check" ${item.done ? "checked" : ""}>
-        <input type="text" data-mi="${mi}" data-ii="${ii}" class="month-text" value="${escapeAttr(item.text)}">
+        <input type="text" data-mi="${mi}" data-ii="${ii}" class="month-text" value="${escapeAttr(item.text)}" placeholder="What's the target?">
+        <button type="button" class="month-item-remove" data-mi="${mi}" data-ii="${ii}" title="Remove target" aria-label="Remove target">✕</button>
       </div>
     `).join("");
     card.innerHTML = `
       <div class="month-card-head">
-        <input class="month-name" data-mi="${mi}" value="${escapeAttr(month.name)}">
-        <button class="month-remove" data-mi="${mi}" title="Remove month">✕</button>
+        <input class="month-name" data-mi="${mi}" value="${escapeAttr(month.name)}" placeholder="Name this month">
+        <button class="month-remove" data-mi="${mi}" title="Remove month" aria-label="Remove month">✕</button>
       </div>
       ${itemsHtml}
       <button class="month-add-item" data-mi="${mi}">+ target</button>
@@ -271,31 +610,108 @@ function renderMonths() {
     state.months[mi].items[ii].done = e.target.checked;
     saveState();
   }));
-  grid.querySelectorAll(".month-text").forEach(el => el.addEventListener("input", e => {
-    const { mi, ii } = e.target.dataset;
-    state.months[mi].items[ii].text = e.target.value;
-    saveState();
-  }));
-  grid.querySelectorAll(".month-name").forEach(el => el.addEventListener("input", e => {
-    const { mi } = e.target.dataset;
-    state.months[mi].name = e.target.value;
-    saveState();
-  }));
+
+  grid.querySelectorAll(".month-text").forEach(el => {
+    el.addEventListener("input", e => {
+      const { mi, ii } = e.target.dataset;
+      state.months[mi].items[ii].text = e.target.value;
+      saveState();
+    });
+    // Enter confirms the name — same as clicking away, just faster.
+    el.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+    });
+    // Leaving it blank falls back to a default rather than silently
+    // keeping an empty, unlabeled target.
+    el.addEventListener("blur", e => {
+      const { mi, ii } = e.target.dataset;
+      if (!e.target.value.trim()) {
+        state.months[mi].items[ii].text = "New target";
+        e.target.value = "New target";
+        saveState();
+      }
+    });
+  });
+
+  grid.querySelectorAll(".month-name").forEach(el => {
+    el.addEventListener("input", e => {
+      const { mi } = e.target.dataset;
+      state.months[mi].name = e.target.value;
+      saveState();
+    });
+    el.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+    });
+    el.addEventListener("blur", e => {
+      const { mi } = e.target.dataset;
+      if (!e.target.value.trim()) {
+        state.months[mi].name = "Untitled";
+        e.target.value = "Untitled";
+        saveState();
+      }
+    });
+  });
+
   grid.querySelectorAll(".month-remove").forEach(el => el.addEventListener("click", e => {
-    const { mi } = e.target.dataset;
-    state.months.splice(mi, 1);
-    saveState();
-    renderMonths();
+    removeMonthWithUndo(+e.currentTarget.dataset.mi);
   }));
+
+  grid.querySelectorAll(".month-item-remove").forEach(el => el.addEventListener("click", e => {
+    const { mi, ii } = e.currentTarget.dataset;
+    removeMonthItemWithUndo(+mi, +ii);
+  }));
+
   grid.querySelectorAll(".month-add-item").forEach(el => el.addEventListener("click", e => {
     const { mi } = e.target.dataset;
-    state.months[mi].items.push({ text: "New target", done: false });
+    state.months[mi].items.push({ text: "", done: false });
     saveState();
+    pendingFocus = { type: "item", mi: +mi, ii: state.months[mi].items.length - 1 };
     renderMonths();
   }));
+
+  // Focus + select whatever was just added, so naming it is immediate —
+  // pressing Enter (or clicking away) confirms it.
+  if (pendingFocus) {
+    const pf = pendingFocus;
+    pendingFocus = null;
+    requestAnimationFrame(() => {
+      let el;
+      if (pf.type === "month") {
+        el = grid.querySelector(`.month-name[data-mi="${pf.mi}"]`);
+      } else {
+        el = grid.querySelector(`.month-text[data-mi="${pf.mi}"][data-ii="${pf.ii}"]`);
+      }
+      if (el) { el.focus(); if (el.select) el.select(); }
+    });
+  }
 }
 
 /* ---------------- Rendering: Subject view ---------------- */
+function removeChapterWithUndo(subject, idx) {
+  const chapter = state.subjects[subject][idx];
+  if (chapter === undefined) return;
+  if (!confirm(`Remove chapter "${chapter}"? This also deletes its tracked progress.`)) return;
+
+  const removedProgress = state.progress[key(subject, chapter)];
+  state.subjects[subject].splice(idx, 1);
+  delete state.progress[key(subject, chapter)];
+  saveState();
+  renderSubjectView(subject);
+  renderOverviewGrid();
+  renderWeeklySummary();
+  renderRevisionNudges();
+
+  showToast(`"${chapter}" removed.`, "Undo", () => {
+    state.subjects[subject].splice(idx, 0, chapter);
+    if (removedProgress) state.progress[key(subject, chapter)] = removedProgress;
+    saveState();
+    renderSubjectView(subject);
+    renderOverviewGrid();
+    renderWeeklySummary();
+    renderRevisionNudges();
+  });
+}
+
 function renderSubjectView(subject) {
   let view = document.getElementById(`view-${subject}`);
   if (!view) {
@@ -337,7 +753,7 @@ function renderSubjectView(subject) {
           <option>${statusLabel(status)}</option>
         </select>
       </td>
-      <td><button class="row-remove" data-idx="${idx}" title="Remove chapter">✕</button></td>
+      <td><button class="row-remove" data-idx="${idx}" title="Remove chapter" aria-label="Remove chapter">✕</button></td>
     `;
     tbody.appendChild(tr);
   });
@@ -362,20 +778,26 @@ function renderSubjectView(subject) {
     const field = e.target.dataset.field;
     const chapter = state.subjects[subject][idx];
     const p = getProgress(subject, chapter);
+    const wasChecked = p[field];
     p[field] = e.target.checked;
+
+    if (field === "revision") {
+      p.lastRevisedDate = e.target.checked ? todayStr() : null;
+    }
+    if (e.target.checked && !wasChecked) {
+      logCompletion(subject, chapter, field);
+    }
+
     saveState();
     renderSubjectView(subject);
     renderOverviewGrid();
+    renderWeeklySummary();
+    renderRevisionNudges();
   }));
 
   tbody.querySelectorAll(".row-remove").forEach(el => el.addEventListener("click", e => {
-    const idx = +e.target.dataset.idx;
-    const chapter = state.subjects[subject][idx];
-    delete state.progress[key(subject, chapter)];
-    state.subjects[subject].splice(idx, 1);
-    saveState();
-    renderSubjectView(subject);
-    renderOverviewGrid();
+    const idx = +e.currentTarget.dataset.idx;
+    removeChapterWithUndo(subject, idx);
   }));
 }
 
@@ -420,10 +842,6 @@ function switchView(viewName) {
 }
 
 /* ---------------- Pixel-art study heatmap (year-long, by month) ---------------- */
-function fmtDate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 let selectedHeatmapMonth = new Date().getMonth(); // 0-11, defaults to the current month
 
@@ -493,16 +911,21 @@ function renderHeatmapCalendar() {
       cell.disabled = true;
       cell.classList.add("is-future");
     } else if (isPast) {
-      cell.title = `${dateStr} — ${["No study logged", "Light", "Solid", "Great", "Deep focus"][level]} (locked — only today can be logged)`;
+      const label = `${dateStr} — ${["No study logged", "Light", "Solid", "Great", "Deep focus"][level]} (locked — only today can be logged)`;
+      cell.title = label;
+      cell.setAttribute("aria-label", label);
       cell.disabled = true;
     } else {
       // today — the only editable cell
-      cell.title = `${dateStr} — ${["No study logged", "Light", "Solid", "Great", "Deep focus"][level]} (click to update)`;
+      const label = `${dateStr} — ${["No study logged", "Light", "Solid", "Great", "Deep focus"][level]} (click to update)`;
+      cell.title = label;
+      cell.setAttribute("aria-label", label);
       cell.addEventListener("click", () => {
         const next = (level + 1) % 5;
         state.heatmap[dateStr] = next;
         saveState();
         renderHeatmapCalendar();
+        renderWeeklySummary();
       });
     }
     daysEl.appendChild(cell);
@@ -744,7 +1167,7 @@ async function performSync() {
 
     if (remoteRow && remoteUpdatedAtMs > localUpdatedAtMs) {
       // Remote is newer — pull it down and re-render everything.
-      state = { ...structuredClone(DEFAULT_STATE), ...remoteRow.state };
+      state = normalizeState(remoteRow.state);
       saveState();
       applyTheme(state.theme);
       syncThemePills();
@@ -753,6 +1176,9 @@ async function performSync() {
       renderOverviewGrid();
       renderHeatmap();
       renderMonths();
+      renderWeeklySummary();
+      renderRevisionNudges();
+      renderMockTests();
       updateBrandYear();
       tickCountdown();
       renderAvatar();
@@ -816,6 +1242,76 @@ async function initAuth() {
   });
 }
 
+/* ---------------- Backup: export / import ---------------- */
+function setBackupNote(text, kind) {
+  const note = document.getElementById("backupNote");
+  if (!note) return;
+  note.textContent = text;
+  note.classList.remove("is-error", "is-success");
+  if (kind) note.classList.add(kind);
+}
+
+document.getElementById("exportBackupBtn").addEventListener("click", () => {
+  try {
+    const dataStr = JSON.stringify(state, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tracked26-backup-${todayStr()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setBackupNote("Backup downloaded ✓", "is-success");
+  } catch (e) {
+    console.error("Backup export failed.", e);
+    setBackupNote("Couldn't create the backup file.", "is-error");
+  }
+});
+
+document.getElementById("importBackupBtn").addEventListener("click", () => {
+  document.getElementById("backupFileInput").click();
+});
+
+document.getElementById("backupFileInput").addEventListener("change", async e => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || !parsed.subjects) {
+      throw new Error("This file doesn't look like a Tracked 26 backup.");
+    }
+    if (!confirm("Restoring this backup will replace all current data on this device. Continue?")) return;
+
+    state = normalizeState(parsed);
+    saveState();
+
+    applyTheme(state.theme);
+    syncThemePills();
+    document.getElementById("examDate").value = state.examDate;
+    renderTabs();
+    renderOverviewGrid();
+    renderHeatmap();
+    renderMonths();
+    renderWeeklySummary();
+    renderRevisionNudges();
+    renderMockTests();
+    updateBrandYear();
+    tickCountdown();
+    renderAvatar();
+    pushWidgetState();
+
+    setBackupNote("Backup restored ✓", "is-success");
+  } catch (err) {
+    console.error("Backup import failed.", err);
+    setBackupNote(err.message || "Couldn't read that backup file.", "is-error");
+  }
+});
+
 /* ---------------- Profile drawer (onboarding + editing) ---------------- */
 const CLASS_YEAR_OFFSET = { "11": 2, "12": 1, "dropper1": 1, "dropper2": 1 };
 let pendingClassLevel = null;
@@ -863,6 +1359,7 @@ function openProfileDrawer() {
 
   syncThemePills();
   renderSyncUI();
+  setBackupNote("Keep a local copy of your progress — handy if you're not signed in, or switching browsers or devices.");
 
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
@@ -969,10 +1466,6 @@ document.getElementById("showWidgetToggle").addEventListener("change", e => {
 });
 
 // ---------- Start on PC startup toggle ----------
-// This was previously missing entirely — the checkbox visually reflected
-// state.settings.startOnStartup (via applyStartOnStartupToUI) but nothing
-// listened for the user changing it, so it was never saved or sent to
-// main.js. Wired up the same way minimizeToTray / showWidget are above.
 document.getElementById("startOnStartupToggle").addEventListener("change", e => {
   state.settings.startOnStartup = e.target.checked;
   saveState();
@@ -1019,12 +1512,14 @@ document.getElementById("addSubjectBtn").addEventListener("click", () => {
   saveState();
   renderTabs();
   renderOverviewGrid();
+  populateTestSubjectOptions();
   switchView(name);
 });
 
 document.getElementById("addMonthBtn").addEventListener("click", () => {
-  state.months.push({ name: "New", items: [] });
+  state.months.push({ name: "", items: [] });
   saveState();
+  pendingFocus = { type: "month", mi: state.months.length - 1 };
   renderMonths();
 });
 
@@ -1035,14 +1530,11 @@ document.getElementById("examDate").addEventListener("change", e => {
   pushWidgetState();
 });
 
-/* ---------------- Utils ---------------- */
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-function escapeAttr(str) { return escapeHtml(str); }
-
 /* ---------------- Init ---------------- */
 document.getElementById("examDate").value = state.examDate;
+if (document.getElementById("testDateInput")) {
+  document.getElementById("testDateInput").value = todayStr();
+}
 
 // Run each init step independently — if one throws, the others (like the
 // countdown clock) still run instead of the whole page silently freezing.
@@ -1055,6 +1547,9 @@ safe(renderTabs, "renderTabs");
 safe(renderOverviewGrid, "renderOverviewGrid");
 safe(renderHeatmap, "renderHeatmap");
 safe(renderMonths, "renderMonths");
+safe(renderWeeklySummary, "renderWeeklySummary");
+safe(renderRevisionNudges, "renderRevisionNudges");
+safe(renderMockTests, "renderMockTests");
 safe(updateBrandYear, "updateBrandYear");
 safe(tickCountdown, "tickCountdown");
 setInterval(() => safe(tickCountdown, "tickCountdown interval"), 30000);

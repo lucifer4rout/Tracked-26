@@ -1,7 +1,7 @@
 {
   "name": "tracked26",
   "version": "1.0.2",
-  "description": "JEE 2027 Progress Tracker — desktop app",
+  "description": "JEE Progress Tracker — desktop app",
   "author": "Swastik Rout",
   "main": "main.js",
   "scripts": {
@@ -46,7 +46,27 @@
       "icon": "build/icon.icns"
     },
     "win": {
+      "target": "nsis",
       "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Tracked 26",
+      "menuCategory": false,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "license": "build/license.txt",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "installerSidebar": "build/installerSidebar.bmp",
+      "uninstallerSidebar": "build/installerSidebar.bmp",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "linux": {
       "target": "AppImage",
