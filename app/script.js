@@ -1036,11 +1036,13 @@ function renderSyncUI() {
   const accountEl = document.getElementById("syncAccount");
   const syncBtnLabel = document.getElementById("syncBtnLabel");
   const syncBtn = document.getElementById("syncBtn");
+  const deleteCloudRow = document.getElementById("deleteCloudRow");
 
   if (!supabaseClient) {
     accountEl.hidden = true;
     syncBtnLabel.textContent = "Sync not configured";
     syncBtn.disabled = true;
+    deleteCloudRow.hidden = true;
     setSyncNote("Sync isn't set up yet on this deployment.");
     return;
   }
@@ -1055,12 +1057,14 @@ function renderSyncUI() {
     document.getElementById("syncAccountAvatar").style.visibility = currentGoogleAvatarUrl ? "visible" : "hidden";
     syncBtnLabel.textContent = "Sync now";
     syncBtn.disabled = false;
+    deleteCloudRow.hidden = false; // only relevant once there's a cloud row to delete
     setSyncNote("Synced to your Google account. Click sync anytime to push or pull the latest changes.");
   } else {
     currentGoogleAvatarUrl = null;
     accountEl.hidden = true;
     syncBtnLabel.textContent = "Sign in with Google to sync";
     syncBtn.disabled = false;
+    deleteCloudRow.hidden = true;
     setSyncNote("Sync saves your progress to your Google account so you can pick it up on another device.");
   }
   renderAvatar();
@@ -1220,6 +1224,90 @@ document.getElementById("syncBtn").addEventListener("click", () => {
   }
 });
 document.getElementById("syncSignOutBtn").addEventListener("click", signOutOfGoogle);
+
+/* ---------------- Danger zone: clear local / delete cloud data ---------------- */
+
+// Wipes everything stored on THIS device — localStorage, in-memory state,
+// the widget's cached view of it — and resets the UI back to the
+// mandatory first-run onboarding. Deliberately does not touch Supabase:
+// this is a "start over on this device" action, not an account deletion.
+function clearLocalData() {
+  const confirmed = confirm(
+    "Erase all local data and settings on this device?\n\n" +
+    "This deletes your progress, heatmap, targets, and profile stored " +
+    "here. It can't be undone. Anything already synced to your account " +
+    "is not affected."
+  );
+  if (!confirmed) return;
+
+  localStorage.removeItem(STORAGE_KEY);
+  state = structuredClone(DEFAULT_STATE);
+  saveState();
+
+  applyTheme(state.theme);
+  syncThemePills();
+  document.getElementById("examDate").value = state.examDate;
+  renderTabs();
+  renderOverviewGrid();
+  renderHeatmap();
+  renderMonths();
+  updateBrandYear();
+  tickCountdown();
+  renderAvatar();
+  pushWidgetState();
+  if (IS_ELECTRON && window.electronAPI.setMinimizeToTray) {
+    window.electronAPI.setMinimizeToTray(state.settings.minimizeToTray);
+  }
+  if (IS_ELECTRON && window.electronAPI.setShowWidget) {
+    window.electronAPI.setShowWidget(state.settings.showDesktopWidget);
+  }
+  if (IS_ELECTRON && window.electronAPI.setStartOnStartup) {
+    window.electronAPI.setStartOnStartup(state.settings.startOnStartup);
+  }
+
+  setSyncNote("Local data cleared.", "is-success");
+  // state.profile is now null, so this reopens the mandatory setup flow —
+  // closeProfileDrawer()'s own guard means it can't be dismissed until
+  // it's filled in again, same as a genuine first run.
+  openProfileDrawer();
+}
+
+// Deletes the signed-in user's row from the tracker_state table in
+// Supabase. Requires being signed in — RLS policies mean this can only
+// ever delete the caller's own row (see the "Users can delete their own
+// tracker state" policy). This does NOT delete the underlying Google/
+// Supabase auth account itself, only the synced app data.
+async function deleteCloudData() {
+  if (!supabaseClient || !currentSession) return;
+
+  const confirmed = confirm(
+    "Permanently delete your synced data from your Google account?\n\n" +
+    "This can't be undone. This device's local copy is not affected."
+  );
+  if (!confirmed) return;
+
+  const btn = document.getElementById("deleteCloudDataBtn");
+  btn.disabled = true;
+  setSyncNote("Deleting cloud data…");
+
+  try {
+    const userId = currentSession.user.id;
+    const { error } = await supabaseClient
+      .from("tracker_state")
+      .delete()
+      .eq("user_id", userId);
+    if (error) throw error;
+    setSyncNote("Cloud data deleted.", "is-success");
+  } catch (err) {
+    console.error("Failed to delete cloud data.", err);
+    setSyncNote("Couldn't delete cloud data — check your connection and try again.", "is-error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("clearLocalDataBtn").addEventListener("click", clearLocalData);
+document.getElementById("deleteCloudDataBtn").addEventListener("click", deleteCloudData);
 
 async function initAuth() {
   if (!supabaseClient) { renderSyncUI(); return; }

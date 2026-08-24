@@ -248,6 +248,28 @@
       <input type="file" id="backupFileInput" accept="application/json" hidden>
       <p class="sync-note" id="backupNote">Keep a local copy of your progress — handy if you're not signed in, or switching browsers or devices.</p>
     </div>
+
+    <!-- Danger zone — permanent deletions. Kept visually distinct (red)
+         and separate from backup/sync so it's never clicked by accident. -->
+    <div class="danger-zone">
+      <p class="danger-zone-label">Danger zone</p>
+
+      <div class="danger-zone-row">
+        <div class="danger-zone-text">
+          <span class="danger-zone-title">Clear local data</span>
+          <p class="danger-zone-desc">Erases everything stored on this device — progress, settings, and your profile. This won't touch anything already synced to your account.</p>
+        </div>
+        <button type="button" class="danger-btn" id="clearLocalDataBtn">Clear</button>
+      </div>
+
+      <div class="danger-zone-row" id="deleteCloudRow" hidden>
+        <div class="danger-zone-text">
+          <span class="danger-zone-title">Delete cloud data</span>
+          <p class="danger-zone-desc">Permanently deletes your synced progress from your Google account. This device's local copy is untouched.</p>
+        </div>
+        <button type="button" class="danger-btn" id="deleteCloudDataBtn">Delete</button>
+      </div>
+    </div>
   </aside>
 
   <!-- ===================== SETTINGS PANEL ===================== -->
