@@ -6,6 +6,10 @@
 
 Track your progress across **Physics, Chemistry, and Maths**, monitor chapter completion, log daily study activity with a visual heatmap, and stay focused with monthly targets and a live countdown to your exam.
 
+> ⚠️ **Windows Download Warning:** Windows may occasionally show a security warning when downloading Tracked.26 because the application is new and has a low download/reputation history. **The file is safe and has been checked with multiple antivirus/security scanners.**
+>
+> 📖 **Seeing a warning?** Follow the [Windows security warning guide](https://github.com/lucifer4rout/Tracked-26/issues/3) for instructions on how to continue the download.
+
 ---
 
 ## ✨ Features
@@ -50,23 +54,13 @@ Not limited to the default structure — add your own subjects and chapters to m
 
 ## 🖥️ Screenshots
 
-## 🖥️ Screenshots
-
 ### Dashboard
-
-![Tracked 26 Dashboard](assets/screenshots/dashboard.png)
 
 ### Chapter Progress
 
-![Tracked 26 Physics](assets/screenshots/physics.png)
-
 ### Study Consistency
 
-![Tracked 26 Study Heatmap](assets/screenshots/heatmap.png)
-
 ### Monthly Goals
-
-![Tracked 26 Monthly Targets](assets/screenshots/targets.png)
 
 ---
 
@@ -152,7 +146,7 @@ JEE preparation can feel overwhelming when there are dozens of chapters, lecture
 ## 🔮 Future Ideas
 
 * [ ] Data backup and export
-* [ ] Advanced statistics
+* [x] Advanced statistics
 * [ ] Revision reminders
 * [ ] Study streaks
 * [ ] Achievement system
