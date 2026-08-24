@@ -8,8 +8,8 @@
 const STORAGE_KEY = "jee-tracker-state-v1";
 
 /* ---------------- Supabase config ---------------- */
-const SUPABASE_URL = "https://jxrourlbqhfojxrfimff.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp4cm91cmxicWhmb2p4cmZpbWZmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczNzY3MTksImV4cCI6MjEwMjk1MjcxOX0.uA5lSZ0MxtX8Yxyyx265VfCSlDvC8vHHqF5TwTg6WQg";
+const SUPABASE_URL = "SITE-SPECIFIC-URL"; // e.g. "https://abc123.supabase.co"
+const SUPABASE_ANON_KEY = "PASTE-KEY-FROM-SUPABASE"; // e.g. "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 
 // True when running inside the Electron shell (preload.js exposes this).
 // The web build never has window.electronAPI, so this is always false there.
