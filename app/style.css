@@ -1191,6 +1191,14 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .sync-btn-icon { display: inline-block; transition: transform 0.5s ease; }
 .sync-btn.is-checking .sync-btn-icon { animation: syncSpin 0.6s linear infinite; }
 
+.sync-btn-secondary {
+  margin-top: 8px;
+  background: transparent;
+  font-size: 12.5px;
+  padding: 9px;
+}
+.sync-btn-secondary:hover { border-color: var(--amber-dim); }
+
 @keyframes syncSpin {
   to { transform: rotate(360deg); }
 }

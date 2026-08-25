@@ -18,6 +18,10 @@ let startedHidden = process.argv.includes("--hidden");
 let mainWindow = null;
 let tray = null;
 
+// ---------- Startup splash ----------
+let splashWindow = null;
+let lastSplashStatus = null;
+
 // ---------- Desktop widget state ----------
 let widgetWindow = null;
 let showDesktopWidget = false;
@@ -75,12 +79,6 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, "app", "index.html"));
 
-  // Show once ready — unless this launch was auto-start at login, in
-  // which case it should stay hidden in the tray until the user opens it.
-  mainWindow.once("ready-to-show", () => {
-    if (!startedHidden) mainWindow.show();
-  });
-
   // Any link the app tries to navigate to externally (e.g. if a stray
   // target=_blank shows up) should open in the system browser, not a
   // second Electron window.
@@ -97,6 +95,15 @@ function createWindow() {
       event.preventDefault();
       mainWindow.hide();
     }
+  });
+}
+
+// Resolves once the main window's content is actually ready to paint.
+// Used in app.whenReady() so the window is only shown once BOTH this and
+// the startup update check have finished — whichever takes longer.
+function mainWindowReady() {
+  return new Promise((resolve) => {
+    mainWindow.once("ready-to-show", resolve);
   });
 }
 
@@ -177,6 +184,135 @@ function createTray() {
   });
 }
 
+// ---------- Startup splash window ----------
+// A small window shown first on launch, like Discord/Slack: it runs the
+// update check, shows progress if one's found, then either closes so the
+// main window can appear (no update) or silently installs and relaunches
+// (update found) — the main window is never shown mid-update.
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 320,
+    height: 190,
+    frame: false,
+    resizable: false,
+    movable: false,
+    transparent: true,
+    hasShadow: true,
+    skipTaskbar: true,
+    center: true,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: path.join(__dirname, "app", "splash-preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  splashWindow.loadFile(path.join(__dirname, "app", "splash.html"));
+
+  // In case a status arrives before the splash page has finished loading
+  // (quite possible — "checking" fires almost immediately), replay the
+  // most recent one once it's ready instead of the page sitting blank.
+  splashWindow.webContents.once("did-finish-load", () => {
+    if (lastSplashStatus) setSplashStatus(lastSplashStatus);
+  });
+
+  splashWindow.on("closed", () => {
+    splashWindow = null;
+  });
+}
+
+function setSplashStatus(status) {
+  lastSplashStatus = status;
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.webContents.send("splash-status", status);
+  }
+}
+
+function closeSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+  }
+  splashWindow = null;
+}
+
+// Minimum time the splash stays up even on an instant "you're up to
+// date" result — long enough to register as "it did something" rather
+// than an unexplained flash, short enough to not feel like a delay.
+const MIN_SPLASH_MS = 700;
+
+// Runs the update check that gates the splash → main window handoff.
+// Resolves once it's safe to show the main window (no update, dev mode,
+// or the check/download failed) — resolving anyway on failure so a
+// GitHub outage never blocks the app from opening. If an update IS found
+// and downloaded, this deliberately never resolves: the app silently
+// installs and relaunches instead (see the update-downloaded handler),
+// and this whole sequence runs again from scratch on the new launch.
+function runStartupUpdateCheck() {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const finish = () => {
+      const waitMs = Math.max(0, MIN_SPLASH_MS - (Date.now() - startedAt));
+      setTimeout(resolve, waitMs);
+    };
+
+    if (!app.isPackaged) {
+      // No packaged app-update.yml / version metadata to check against
+      // when running via `npm start`.
+      setSplashStatus({ status: "dev-mode" });
+      finish();
+      return;
+    }
+
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    setSplashStatus({ status: "checking" });
+
+    const onProgress = (progress) => setSplashStatus({ status: "progress", percent: progress.percent });
+    autoUpdater.on("download-progress", onProgress);
+
+    autoUpdater.once("update-not-available", () => {
+      autoUpdater.removeListener("download-progress", onProgress);
+      setSplashStatus({ status: "up-to-date" });
+      finish();
+    });
+
+    autoUpdater.once("error", (err) => {
+      autoUpdater.removeListener("download-progress", onProgress);
+      console.error("Startup update check failed:", err);
+      setSplashStatus({ status: "error" });
+      finish();
+    });
+
+    autoUpdater.once("update-available", (info) => {
+      setSplashStatus({ status: "downloading", version: info.version });
+    });
+
+    autoUpdater.once("update-downloaded", (info) => {
+      autoUpdater.removeListener("download-progress", onProgress);
+      setSplashStatus({ status: "restarting", version: info.version });
+      // Silent + automatic — no "Restart now / Later" prompt here, since
+      // the main window was never shown yet, unlike updates found later
+      // while the app is already open (see setupBackgroundAutoUpdater).
+      setTimeout(() => {
+        isQuitting = true;
+        autoUpdater.quitAndInstall(true, true);
+      }, 900);
+    });
+
+    // Safety net: never block startup indefinitely if something above
+    // misbehaves (e.g. no "error" event fires for some edge-case failure).
+    setTimeout(finish, 8000);
+
+    autoUpdater.checkForUpdates().catch(err => {
+      console.error("Startup update check failed to start:", err);
+      setSplashStatus({ status: "error" });
+      finish();
+    });
+  });
+}
+
 function handleDeepLink(url) {
   if (!url || !url.startsWith(`${PROTOCOL}://`)) return;
   if (mainWindow) {
@@ -206,15 +342,19 @@ app.on("open-url", (event, url) => {
 });
 
 // ---------- Auto-update (GitHub Releases via electron-updater) ----------
+// The very first check, at launch, is handled separately by
+// runStartupUpdateCheck() above (drives the splash window, installs
+// silently with no prompt). This function covers everything AFTER
+// startup — periodic checks while the app is left open, and manual
+// checks triggered from the renderer — where the main window is already
+// visible, so a "Restart now / Later" prompt makes sense.
 function sendUpdateStatus(status) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("update-status", status);
   }
 }
 
-function setupAutoUpdater() {
-  // Don't bother checking in dev — there's no packaged app-update.yml /
-  // version metadata to compare against when running via `npm start`.
+function setupBackgroundAutoUpdater() {
   if (!app.isPackaged) return;
 
   autoUpdater.autoDownload = true;         // download silently in the background
@@ -259,8 +399,9 @@ function setupAutoUpdater() {
     }
   });
 
-  // Check on launch, then every few hours in case the app is left open for days.
-  autoUpdater.checkForUpdates().catch(err => console.error("Initial update check failed:", err));
+  // The launch-time check already happened via runStartupUpdateCheck() —
+  // this just keeps checking periodically in case the app is left open
+  // for days.
   setInterval(() => {
     autoUpdater.checkForUpdates().catch(err => console.error("Periodic update check failed:", err));
   }, 4 * 60 * 60 * 1000);
@@ -293,6 +434,11 @@ ipcMain.on("set-start-on-startup", (_event, value) => {
   if (!app.isPackaged) return;
   app.setLoginItemSettings({
     openAtLogin: !!value,
+    // Honored natively on macOS. On Windows/Linux the OS ignores it, so
+    // we also pass our own --hidden flag below and check for it ourselves
+    // via `startedHidden` at the top of this file / the macOS branch in
+    // app.whenReady().
+    openAsHidden: true,
     // --hidden tells this same file (see `startedHidden` above) to skip
     // showing the window — it should only appear in the tray at login.
     args: value ? ["--hidden"] : []
@@ -323,7 +469,7 @@ function createWidgetWindow() {
     // app you focus, including your editor — which is what was covering
     // VS Code. Without this flag it behaves like a normal window: it
     // sits on the desktop and goes behind whatever you're actively using,
-        // which is the actual "desktop widget" feel being asked for.
+    // which is the actual "desktop widget" feel being asked for.
     alwaysOnTop: false,
     skipTaskbar: true,
     backgroundColor: "#00000000",
@@ -409,23 +555,12 @@ ipcMain.on("widget-close-clicked", () => {
   }
 });
 
-// ---------- Start on PC startup ----------
+app.whenReady().then(async () => {
+  // macOS reports a hidden login-item launch directly instead of via argv.
+  if (process.platform === "darwin") {
+    startedHidden = startedHidden || app.getLoginItemSettings().wasOpenedAsHidden;
+  }
 
-// Renderer tells us whenever the "Start on PC startup" setting changes
-// (including once on startup, so this is correct even before the user
-// opens Settings). openAsHidden is honored natively on macOS; on
-// Windows/Linux it's ignored by the OS, so we pass our own --hidden flag
-// and check for it ourselves in startedHidden above / the macOS branch
-// in app.whenReady() below.
-ipcMain.on("set-start-on-startup", (_event, value) => {
-  app.setLoginItemSettings({
-    openAtLogin: !!value,
-    openAsHidden: true,
-    args: ["--hidden"]
-  });
-});
-
-app.whenReady().then(() => {
   // Removes the default File/Edit/View/Window/Help menu bar. On Windows
   // and Linux this hides it completely. On macOS the menu bar itself
   // can't be removed (it's part of the OS), so a minimal one is kept
@@ -453,14 +588,32 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
   }
 
-  // macOS reports a hidden login-item launch directly instead of via argv.
-  if (process.platform === "darwin") {
-    startedHidden = startedHidden || app.getLoginItemSettings().wasOpenedAsHidden;
-  }
-
   createWindow();
   createTray();
-  setupAutoUpdater();
+
+  // Startup splash + update check. Skipped visually when this launch was
+  // a hidden auto-start at login (see "Start on PC startup") — nothing
+  // should flash on screen for that — but the update check itself still
+  // runs silently either way, via runStartupUpdateCheck() below.
+  if (!startedHidden) {
+    createSplashWindow();
+  }
+
+  // Wait for BOTH the main window's content to actually be ready to
+  // paint AND the update check to finish, whichever takes longer, before
+  // showing anything. If an update is found and installed, this promise
+  // never resolves — the app quits and relaunches instead (see
+  // runStartupUpdateCheck), so nothing after this point runs.
+  await Promise.all([runStartupUpdateCheck(), mainWindowReady()]);
+
+  closeSplashWindow();
+  if (!startedHidden) {
+    mainWindow.show();
+  }
+
+  // Persistent handlers for updates found later, while the app is
+  // already open (periodic checks + manual "check for updates").
+  setupBackgroundAutoUpdater();
 
   // Windows/Linux: if THIS launch of the app was itself triggered by the
   // OS opening a tracked26://... link (cold start, not already running).

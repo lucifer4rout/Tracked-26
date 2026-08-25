@@ -123,8 +123,13 @@ function loadState() {
   }
 }
 
-function saveState() {
-  state.updatedAt = Date.now();
+function saveState(bumpTimestamp = true) {
+  // Normally every save should look "newest" so it wins the next sync.
+  // The one exception is a local data reset (see clearLocalData) — that
+  // should look OLDER than whatever's in the cloud, so the next sync
+  // pulls the real data back down instead of pushing the empty reset up
+  // and overwriting it.
+  if (bumpTimestamp) state.updatedAt = Date.now();
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
@@ -1037,12 +1042,14 @@ function renderSyncUI() {
   const syncBtnLabel = document.getElementById("syncBtnLabel");
   const syncBtn = document.getElementById("syncBtn");
   const deleteCloudRow = document.getElementById("deleteCloudRow");
+  const importCloudBtn = document.getElementById("importCloudBtn");
 
   if (!supabaseClient) {
     accountEl.hidden = true;
     syncBtnLabel.textContent = "Sync not configured";
     syncBtn.disabled = true;
-    deleteCloudRow.hidden = true;
+    if (deleteCloudRow) deleteCloudRow.hidden = true;
+    if (importCloudBtn) importCloudBtn.hidden = true;
     setSyncNote("Sync isn't set up yet on this deployment.");
     return;
   }
@@ -1057,14 +1064,16 @@ function renderSyncUI() {
     document.getElementById("syncAccountAvatar").style.visibility = currentGoogleAvatarUrl ? "visible" : "hidden";
     syncBtnLabel.textContent = "Sync now";
     syncBtn.disabled = false;
-    deleteCloudRow.hidden = false; // only relevant once there's a cloud row to delete
+    if (deleteCloudRow) deleteCloudRow.hidden = false; // only relevant once there's a cloud row to delete
+    if (importCloudBtn) importCloudBtn.hidden = false;
     setSyncNote("Synced to your Google account. Click sync anytime to push or pull the latest changes.");
   } else {
     currentGoogleAvatarUrl = null;
     accountEl.hidden = true;
     syncBtnLabel.textContent = "Sign in with Google to sync";
     syncBtn.disabled = false;
-    deleteCloudRow.hidden = true;
+    if (deleteCloudRow) deleteCloudRow.hidden = true;
+    if (importCloudBtn) importCloudBtn.hidden = true;
     setSyncNote("Sync saves your progress to your Google account so you can pick it up on another device.");
   }
   renderAvatar();
@@ -1145,6 +1154,67 @@ async function signOutOfGoogle() {
   renderSyncUI();
 }
 
+// Counts meaningful "this device actually has progress on it" signals —
+// checked chapter boxes, heatmap entries, logged tests, completions, and
+// done monthly targets. Used to guard against an empty/near-empty device
+// (fresh install, or right after Clear Local Data) silently overwriting
+// real cloud progress just because its save timestamp happens to be the
+// most recent one.
+function dataFootprint(s) {
+  if (!s) return 0;
+  let count = 0;
+  if (s.progress) {
+    Object.values(s.progress).forEach(p => {
+      if (p.lectures) count++;
+      if (p.notes) count++;
+      if (p.shortNotes) count++;
+      if (p.revision) count++;
+      if (p.tests) count++;
+    });
+  }
+  if (s.heatmap) count += Object.keys(s.heatmap).length;
+  if (Array.isArray(s.testLog)) count += s.testLog.length;
+  if (Array.isArray(s.completions)) count += s.completions.length;
+  if (Array.isArray(s.months)) {
+    s.months.forEach(m => (m.items || []).forEach(it => { if (it.done) count++; }));
+  }
+  return count;
+}
+
+// Adopts a state object (from a sync pull or an explicit cloud import)
+// as the current local state and re-renders every part of the UI that
+// depends on it. Shared by performSync's pull branch and importFromCloud
+// so the two stay in sync instead of drifting apart over time.
+function applyLoadedState(rawState) {
+  state = normalizeState(rawState);
+  saveState();
+  applyTheme(state.theme);
+  syncThemePills();
+  document.getElementById("examDate").value = state.examDate;
+  renderTabs();
+  renderOverviewGrid();
+  renderHeatmap();
+  renderMonths();
+  renderWeeklySummary();
+  renderRevisionNudges();
+  renderMockTests();
+  updateBrandYear();
+  tickCountdown();
+  renderAvatar();
+  if (IS_ELECTRON && window.electronAPI.setMinimizeToTray) {
+    window.electronAPI.setMinimizeToTray(state.settings.minimizeToTray);
+  }
+  if (IS_ELECTRON && window.electronAPI.setShowWidget) {
+    window.electronAPI.setShowWidget(state.settings.showDesktopWidget);
+    applyShowWidgetToUI();
+  }
+  if (IS_ELECTRON && window.electronAPI.setStartOnStartup) {
+    window.electronAPI.setStartOnStartup(state.settings.startOnStartup);
+    applyStartOnStartupToUI();
+  }
+  pushWidgetState();
+}
+
 async function performSync() {
   if (!supabaseClient || syncInFlight) return;
   if (!currentSession) {
@@ -1169,35 +1239,18 @@ async function performSync() {
     const remoteUpdatedAtMs = remoteRow ? new Date(remoteRow.updated_at).getTime() : 0;
     const localUpdatedAtMs = state.updatedAt || 0;
 
-    if (remoteRow && remoteUpdatedAtMs > localUpdatedAtMs) {
-      // Remote is newer — pull it down and re-render everything.
-      state = normalizeState(remoteRow.state);
-      saveState();
-      applyTheme(state.theme);
-      syncThemePills();
-      document.getElementById("examDate").value = state.examDate;
-      renderTabs();
-      renderOverviewGrid();
-      renderHeatmap();
-      renderMonths();
-      renderWeeklySummary();
-      renderRevisionNudges();
-      renderMockTests();
-      updateBrandYear();
-      tickCountdown();
-      renderAvatar();
-      if (IS_ELECTRON && window.electronAPI.setMinimizeToTray) {
-        window.electronAPI.setMinimizeToTray(state.settings.minimizeToTray);
-      }
-      if (IS_ELECTRON && window.electronAPI.setShowWidget) {
-        window.electronAPI.setShowWidget(state.settings.showDesktopWidget);
-        applyShowWidgetToUI();
-      }
-      if (IS_ELECTRON && window.electronAPI.setStartOnStartup) {
-        window.electronAPI.setStartOnStartup(state.settings.startOnStartup);
-        applyStartOnStartupToUI();
-      }
-      pushWidgetState();
+    // Safety net: if this device looks empty (no checked chapters, no
+    // heatmap, nothing logged) but the cloud has real progress, always
+    // pull — never push. Without this, a fresh install or a just-cleared
+    // device can end up with a save timestamp that's technically "newer"
+    // than the cloud (e.g. from completing onboarding) and silently wipe
+    // real synced data purely because of that timestamp race.
+    const localLooksEmpty = dataFootprint(state) === 0;
+    const remoteHasData = dataFootprint(remoteRow?.state) > 0;
+    const shouldPull = remoteRow && (remoteUpdatedAtMs > localUpdatedAtMs || (localLooksEmpty && remoteHasData));
+
+    if (shouldPull) {
+      applyLoadedState(remoteRow.state);
       setSyncNote("Synced ✓ — pulled the newer copy from your account.", "is-success");
     } else {
       // Local is newer (or nothing remote yet) — push it up.
@@ -1215,6 +1268,51 @@ async function performSync() {
     syncInFlight = false;
   }
 }
+
+// Explicit, unconditional pull — ignores timestamps entirely and always
+// replaces local with whatever's in the cloud. This is the "I know local
+// is empty/wrong, just give me my real data back" button, distinct from
+// Sync's automatic (timestamp + footprint guarded) direction-picking.
+async function importFromCloud() {
+  if (!supabaseClient || !currentSession) return;
+
+  const confirmed = confirm(
+    "Import your saved progress from the cloud?\n\n" +
+    "This replaces everything on this device with your cloud copy. " +
+    "Any local changes not already synced will be lost."
+  );
+  if (!confirmed) return;
+
+  const btn = document.getElementById("importCloudBtn");
+  btn.disabled = true;
+  setSyncNote("Importing from cloud…");
+
+  try {
+    const userId = currentSession.user.id;
+    const { data: remoteRow, error } = await supabaseClient
+      .from("tracker_state")
+      .select("state, updated_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) throw error;
+
+    if (!remoteRow) {
+      setSyncNote("No cloud data found for this account yet.", "is-error");
+      return;
+    }
+
+    applyLoadedState(remoteRow.state);
+    setSyncNote("Imported from cloud ✓", "is-success");
+  } catch (err) {
+    console.error("Import from cloud failed.", err);
+    setSyncNote("Import failed — check your connection and try again.", "is-error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+const importCloudBtnEl = document.getElementById("importCloudBtn");
+if (importCloudBtnEl) importCloudBtnEl.addEventListener("click", importFromCloud);
 
 document.getElementById("syncBtn").addEventListener("click", () => {
   if (currentSession) {
@@ -1242,7 +1340,13 @@ function clearLocalData() {
 
   localStorage.removeItem(STORAGE_KEY);
   state = structuredClone(DEFAULT_STATE);
-  saveState();
+  // Deliberately look "older" than anything in the cloud (epoch 0), so
+  // if the person is signed in and hits Sync afterward, the sync logic
+  // sees the cloud copy as newer and pulls it back down — instead of
+  // treating this reset as "the latest change" and pushing an empty
+  // state up over their real synced data.
+  state.updatedAt = 0;
+  saveState(false);
 
   applyTheme(state.theme);
   syncThemePills();
@@ -1306,8 +1410,10 @@ async function deleteCloudData() {
   }
 }
 
-document.getElementById("clearLocalDataBtn").addEventListener("click", clearLocalData);
-document.getElementById("deleteCloudDataBtn").addEventListener("click", deleteCloudData);
+const clearLocalDataBtnEl = document.getElementById("clearLocalDataBtn");
+if (clearLocalDataBtnEl) clearLocalDataBtnEl.addEventListener("click", clearLocalData);
+const deleteCloudDataBtnEl = document.getElementById("deleteCloudDataBtn");
+if (deleteCloudDataBtnEl) deleteCloudDataBtnEl.addEventListener("click", deleteCloudData);
 
 async function initAuth() {
   if (!supabaseClient) { renderSyncUI(); return; }
