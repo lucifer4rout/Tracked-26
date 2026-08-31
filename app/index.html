@@ -20,6 +20,7 @@
     </div>
     <nav class="tabs" id="subjectTabs">
       <button class="tab active" data-view="dashboard">Dashboard</button>
+      <button class="tab" data-view="nextTest">Next Test</button>
       <!-- subject tabs injected by JS -->
     </nav>
     <button class="add-subject-btn" id="addSubjectBtn" title="Add subject">+ Subject</button>
@@ -58,6 +59,17 @@
         <div class="exam-date-row">
           <label for="examDate">Exam date</label>
           <input type="date" id="examDate">
+        </div>
+      </section>
+
+      <!-- Upcoming test summary — date/name set from the Next Test tab -->
+      <section class="next-test-panel" id="nextTestPanel">
+        <div class="next-test-head">
+          <h2>Next Test</h2>
+          <button type="button" class="ghost-btn" id="goToNextTestBtn">Edit syllabus</button>
+        </div>
+        <div class="next-test-body" id="nextTestBody">
+          <!-- populated by JS -->
         </div>
       </section>
 
@@ -136,6 +148,39 @@
         </div>
       </section>
 
+    </section>
+
+    <!-- ===================== NEXT TEST SYLLABUS VIEW ===================== -->
+    <section id="nextTestView" class="view" hidden>
+      <div class="syllabus-head">
+        <h2>Next Test Syllabus</h2>
+        <p class="syllabus-sub">Mark the chapters this test covers. Status shows how prepped each one already is.</p>
+
+        <div class="syllabus-test-info">
+          <div class="syllabus-test-field">
+            <label for="nextTestNameInput">Test name (optional)</label>
+            <input type="text" id="nextTestNameInput" placeholder="e.g. FIITJEE AITS 3" maxlength="60">
+          </div>
+          <div class="syllabus-test-field">
+            <label for="nextTestDateInput">Test date</label>
+            <input type="date" id="nextTestDateInput">
+          </div>
+        </div>
+      </div>
+
+      <div class="syllabus-subject-tabs" id="syllabusSubjectTabs">
+        <!-- Physics / Chemistry / Maths sub-tabs injected by JS -->
+      </div>
+
+      <div class="syllabus-toolbar">
+        <button type="button" class="syllabus-link" id="syllabusSelectAllBtn">select all in tab</button>
+        <button type="button" class="syllabus-link" id="syllabusClearAllBtn">clear all</button>
+        <span class="syllabus-count" id="syllabusCount"></span>
+      </div>
+
+      <div class="syllabus-list" id="syllabusList">
+        <!-- chapter checklist injected by JS -->
+      </div>
     </section>
 
     <!-- ===================== SUBJECT VIEW (template, cloned per subject) ===================== -->

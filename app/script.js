@@ -88,7 +88,10 @@ const DEFAULT_STATE = {
     ]}
   ],
   testLog: [],      // [{ id, date, subject, topic, score, maxScore }] — mock/practice test scores
-  completions: []   // [{ date, subject, chapter, field }] — log of check-offs, used for streak/weekly stats
+  completions: [],  // [{ date, subject, chapter, field }] — log of check-offs, used for streak/weekly stats
+  nextTestSyllabus: { Physics: [], Chemistry: [], Maths: [] },  // subject -> chapter names checked for the upcoming test
+  nextTestDate: null,   // "YYYY-MM-DD" of the upcoming test, or null if unset
+  nextTestName: ""      // optional label for the upcoming test, e.g. "FIITJEE AITS 3"
 };
 
 // Shared by loadState() and the backup-restore flow, so both fill in
@@ -108,8 +111,18 @@ function normalizeState(parsed) {
     heatmap: parsed.heatmap ?? {},
     months: parsed.months ?? base.months,
     testLog: parsed.testLog ?? [],
-    completions: parsed.completions ?? []
+    completions: parsed.completions ?? [],
+    nextTestSyllabus: parsed.nextTestSyllabus ?? {},
+    nextTestDate: parsed.nextTestDate ?? null,
+    nextTestName: parsed.nextTestName ?? ""
   };
+}
+
+// Every subject needs its own array in nextTestSyllabus, even ones added
+// after the syllabus feature shipped (or restored from an older backup).
+function getSyllabus(subject) {
+  if (!state.nextTestSyllabus[subject]) state.nextTestSyllabus[subject] = [];
+  return state.nextTestSyllabus[subject];
 }
 
 function loadState() {
@@ -236,6 +249,57 @@ function tickCountdown() {
   document.getElementById("minsNum").textContent = String(mins).padStart(2, "0");
 }
 
+/* ---------------- Next Test dashboard card ---------------- */
+// Renders the "Next Test" summary panel on the Dashboard, driven by
+// state.nextTestDate / state.nextTestName (set from the Next Test tab).
+function renderNextTestPanel() {
+  const body = document.getElementById("nextTestBody");
+  if (!body) return;
+
+  if (!state.nextTestDate) {
+    body.innerHTML = `
+      <p class="next-test-empty">No test scheduled yet. Set a date from the <strong>Next Test</strong> tab.</p>
+    `;
+    return;
+  }
+
+  const days = daysUntil(state.nextTestDate);
+  let dayLabel;
+  if (days > 1) dayLabel = `${days} days left`;
+  else if (days === 1) dayLabel = "Tomorrow";
+  else if (days === 0) dayLabel = "Today";
+  else dayLabel = `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ago`;
+
+  const chapterCount = Object.values(state.nextTestSyllabus || {})
+    .reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0);
+  const syllabusHint = chapterCount
+    ? `${chapterCount} chapter${chapterCount === 1 ? "" : "s"} in syllabus`
+    : "No chapters marked yet";
+
+  body.innerHTML = `
+    <div class="next-test-info">
+      <span class="next-test-name">${escapeHtml(state.nextTestName || "Upcoming Test")}</span>
+      <span class="next-test-date">${escapeHtml(formatNiceDate(state.nextTestDate))}</span>
+    </div>
+    <div class="next-test-countdown${days < 0 ? " is-past" : ""}">${escapeHtml(dayLabel)}</div>
+    <div class="next-test-syllabus-hint">${escapeHtml(syllabusHint)}</div>
+  `;
+}
+
+document.getElementById("goToNextTestBtn")?.addEventListener("click", () => switchView("nextTest"));
+
+document.getElementById("nextTestDateInput")?.addEventListener("change", e => {
+  state.nextTestDate = e.target.value || null;
+  saveState();
+  renderNextTestPanel();
+});
+
+document.getElementById("nextTestNameInput")?.addEventListener("input", e => {
+  state.nextTestName = e.target.value;
+  saveState();
+  renderNextTestPanel();
+});
+
 /* ---------------- Small utils ---------------- */
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -248,6 +312,19 @@ function uid() {
 
 function fmtDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Whole-day difference between today and a "YYYY-MM-DD" string (positive = future).
+function daysUntil(dateStr) {
+  const target = new Date(dateStr + "T00:00:00");
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.round((target - now) / (1000 * 60 * 60 * 24));
+}
+
+function formatNiceDate(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 function todayStr() { return fmtDate(new Date()); }
 
@@ -698,6 +775,10 @@ function removeChapterWithUndo(subject, idx) {
   if (!confirm(`Remove chapter "${chapter}"? This also deletes its tracked progress.`)) return;
 
   const removedProgress = state.progress[key(subject, chapter)];
+  const picked = getSyllabus(subject);
+  const pickedIdx = picked.indexOf(chapter);
+  const wasPicked = pickedIdx !== -1;
+  if (wasPicked) picked.splice(pickedIdx, 1);
   state.subjects[subject].splice(idx, 1);
   delete state.progress[key(subject, chapter)];
   saveState();
@@ -709,6 +790,7 @@ function removeChapterWithUndo(subject, idx) {
   showToast(`"${chapter}" removed.`, "Undo", () => {
     state.subjects[subject].splice(idx, 0, chapter);
     if (removedProgress) state.progress[key(subject, chapter)] = removedProgress;
+    if (wasPicked) getSyllabus(subject).push(chapter);
     saveState();
     renderSubjectView(subject);
     renderOverviewGrid();
@@ -774,6 +856,9 @@ function renderSubjectView(subject) {
       state.progress[newKey] = state.progress[oldKey];
       delete state.progress[oldKey];
     }
+    const picked = getSyllabus(subject);
+    const pickedIdx = picked.indexOf(oldName);
+    if (pickedIdx !== -1) picked[pickedIdx] = newName;
     state.subjects[subject][idx] = newName;
     saveState();
   }));
@@ -809,13 +894,16 @@ function renderSubjectView(subject) {
 /* ---------------- Tabs / navigation ---------------- */
 function renderTabs() {
   const nav = document.getElementById("subjectTabs");
-  // Dashboard tab exists in the HTML already — just wire it up (once).
-  const dashTab = nav.querySelector(".tab[data-view='dashboard']");
-  if (dashTab && !dashTab.dataset.bound) {
-    dashTab.addEventListener("click", () => switchView("dashboard"));
-    dashTab.dataset.bound = "true";
-  }
-  nav.querySelectorAll(".tab:not([data-view='dashboard'])").forEach(t => t.remove());
+  // Dashboard and Next Test tabs exist in the HTML already — just wire
+  // them up (once); only the per-subject tabs get rebuilt below.
+  ["dashboard", "nextTest"].forEach(viewName => {
+    const tab = nav.querySelector(`.tab[data-view='${viewName}']`);
+    if (tab && !tab.dataset.bound) {
+      tab.addEventListener("click", () => switchView(viewName));
+      tab.dataset.bound = "true";
+    }
+  });
+  nav.querySelectorAll(".tab:not([data-view='dashboard']):not([data-view='nextTest'])").forEach(t => t.remove());
   Object.keys(state.subjects).forEach(subject => {
     const btn = document.createElement("button");
     btn.className = "tab";
@@ -829,22 +917,130 @@ function renderTabs() {
 function switchView(viewName) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === viewName));
   document.getElementById("dashboardView").hidden = viewName !== "dashboard";
+  document.getElementById("nextTestView").hidden = viewName !== "nextTest";
+  const isSubjectView = viewName !== "dashboard" && viewName !== "nextTest";
   Object.keys(state.subjects).forEach(subject => {
     const view = document.getElementById(`view-${subject}`);
     if (view) view.hidden = viewName !== subject;
   });
-  if (viewName !== "dashboard") {
+  if (isSubjectView) {
     if (!document.getElementById(`view-${viewName}`)) renderSubjectView(viewName);
     document.getElementById(`view-${viewName}`).hidden = false;
   }
+  if (viewName === "nextTest") renderSyllabusView();
+
   // little fade-in on whichever view just became visible
   const active = viewName === "dashboard"
     ? document.getElementById("dashboardView")
-    : document.getElementById(`view-${viewName}`);
+    : viewName === "nextTest"
+      ? document.getElementById("nextTestView")
+      : document.getElementById(`view-${viewName}`);
   active.classList.remove("view-enter");
   void active.offsetWidth; // restart animation
   active.classList.add("view-enter");
 }
+
+/* ---------------- Next Test syllabus ---------------- */
+let currentSyllabusSubject = null;
+
+// Keeps the "Next Test" tab's date/name fields in sync with state —
+// called whenever that tab renders, and whenever state is reloaded
+// wholesale (sync pull, backup restore, local data clear), same pattern
+// as the examDate input elsewhere in this file.
+function syncNextTestInputs() {
+  const dateInput = document.getElementById("nextTestDateInput");
+  const nameInput = document.getElementById("nextTestNameInput");
+  if (dateInput) dateInput.value = state.nextTestDate || "";
+  if (nameInput) nameInput.value = state.nextTestName || "";
+}
+
+function renderSyllabusView() {
+  syncNextTestInputs();
+
+  const subjects = Object.keys(state.subjects);
+  if (!subjects.length) return;
+  if (!currentSyllabusSubject || !subjects.includes(currentSyllabusSubject)) {
+    currentSyllabusSubject = subjects[0];
+  }
+
+  const tabsEl = document.getElementById("syllabusSubjectTabs");
+  tabsEl.innerHTML = "";
+  subjects.forEach(subject => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "syllabus-subject-tab" + (subject === currentSyllabusSubject ? " active" : "");
+    btn.textContent = subject;
+    btn.addEventListener("click", () => {
+      currentSyllabusSubject = subject;
+      renderSyllabusView();
+    });
+    tabsEl.appendChild(btn);
+  });
+
+  renderSyllabusList();
+}
+
+function renderSyllabusList() {
+  const subject = currentSyllabusSubject;
+  const listEl = document.getElementById("syllabusList");
+  const countEl = document.getElementById("syllabusCount");
+  const chapters = state.subjects[subject] || [];
+  const picked = getSyllabus(subject);
+
+  if (!chapters.length) {
+    listEl.innerHTML = `<p class="syllabus-empty">No chapters in ${escapeHtml(subject)} yet — add some from the ${escapeHtml(subject)} tab.</p>`;
+    countEl.textContent = "";
+    return;
+  }
+
+  listEl.innerHTML = "";
+  chapters.forEach(chapter => {
+    const status = computeStatus(getProgress(subject, chapter));
+    const checked = picked.includes(chapter);
+
+    const row = document.createElement("label");
+    row.className = "syllabus-row" + (checked ? " is-checked" : "");
+    row.innerHTML = `
+      <input type="checkbox" ${checked ? "checked" : ""}>
+      <span class="syllabus-chapter-name">${escapeHtml(chapter)}</span>
+      <span class="syllabus-status" data-status="${status}">${statusLabel(status)}</span>
+    `;
+    row.querySelector("input").addEventListener("change", e => {
+      toggleSyllabusChapter(subject, chapter, e.target.checked);
+    });
+    listEl.appendChild(row);
+  });
+
+  countEl.textContent = `${picked.length} of ${chapters.length} selected`;
+}
+
+function toggleSyllabusChapter(subject, chapter, on) {
+  const picked = getSyllabus(subject);
+  const idx = picked.indexOf(chapter);
+  if (on && idx === -1) picked.push(chapter);
+  if (!on && idx !== -1) picked.splice(idx, 1);
+  saveState();
+  renderSyllabusList();
+  renderNextTestPanel();
+}
+
+document.getElementById("syllabusSelectAllBtn").addEventListener("click", () => {
+  const subject = currentSyllabusSubject;
+  if (!subject) return;
+  state.nextTestSyllabus[subject] = [...state.subjects[subject]];
+  saveState();
+  renderSyllabusList();
+  renderNextTestPanel();
+});
+
+document.getElementById("syllabusClearAllBtn").addEventListener("click", () => {
+  const subject = currentSyllabusSubject;
+  if (!subject) return;
+  state.nextTestSyllabus[subject] = [];
+  saveState();
+  renderSyllabusList();
+  renderNextTestPanel();
+});
 
 /* ---------------- Pixel-art study heatmap (year-long, by month) ---------------- */
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -1191,6 +1387,7 @@ function applyLoadedState(rawState) {
   applyTheme(state.theme);
   syncThemePills();
   document.getElementById("examDate").value = state.examDate;
+  syncNextTestInputs();
   renderTabs();
   renderOverviewGrid();
   renderHeatmap();
@@ -1198,6 +1395,7 @@ function applyLoadedState(rawState) {
   renderWeeklySummary();
   renderRevisionNudges();
   renderMockTests();
+  renderNextTestPanel();
   updateBrandYear();
   tickCountdown();
   renderAvatar();
@@ -1351,10 +1549,12 @@ function clearLocalData() {
   applyTheme(state.theme);
   syncThemePills();
   document.getElementById("examDate").value = state.examDate;
+  syncNextTestInputs();
   renderTabs();
   renderOverviewGrid();
   renderHeatmap();
   renderMonths();
+  renderNextTestPanel();
   updateBrandYear();
   tickCountdown();
   renderAvatar();
@@ -1487,6 +1687,7 @@ document.getElementById("backupFileInput").addEventListener("change", async e =>
     applyTheme(state.theme);
     syncThemePills();
     document.getElementById("examDate").value = state.examDate;
+    syncNextTestInputs();
     renderTabs();
     renderOverviewGrid();
     renderHeatmap();
@@ -1494,6 +1695,7 @@ document.getElementById("backupFileInput").addEventListener("change", async e =>
     renderWeeklySummary();
     renderRevisionNudges();
     renderMockTests();
+    renderNextTestPanel();
     updateBrandYear();
     tickCountdown();
     renderAvatar();
@@ -1726,6 +1928,7 @@ document.getElementById("examDate").addEventListener("change", e => {
 
 /* ---------------- Init ---------------- */
 document.getElementById("examDate").value = state.examDate;
+syncNextTestInputs();
 if (document.getElementById("testDateInput")) {
   document.getElementById("testDateInput").value = todayStr();
 }
@@ -1744,6 +1947,7 @@ safe(renderMonths, "renderMonths");
 safe(renderWeeklySummary, "renderWeeklySummary");
 safe(renderRevisionNudges, "renderRevisionNudges");
 safe(renderMockTests, "renderMockTests");
+safe(renderNextTestPanel, "renderNextTestPanel");
 safe(updateBrandYear, "updateBrandYear");
 safe(tickCountdown, "tickCountdown");
 setInterval(() => safe(tickCountdown, "tickCountdown interval"), 30000);

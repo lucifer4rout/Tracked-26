@@ -40,6 +40,16 @@ let minimizeToTray = true;
 // quit, before-quit) so the window's close handler doesn't intercept it.
 let isQuitting = false;
 
+// Small helper used everywhere we touch mainWindow from an event handler
+// that could fire after the window has already been destroyed (e.g. a
+// second-instance event racing with an in-progress quit/auto-update
+// relaunch). A plain `if (mainWindow)` check isn't enough: mainWindow can
+// be non-null but already destroyed, and calling methods on a destroyed
+// BrowserWindow throws "Object has been destroyed".
+function isMainWindowUsable() {
+  return !!mainWindow && !mainWindow.isDestroyed();
+}
+
 // ---------- Single instance lock ----------
 // On Windows/Linux, opening a "tracked26://..." link launches a *second*
 // copy of the app with the URL as an argv — we forward that URL to the
@@ -51,7 +61,7 @@ if (!gotLock) {
   app.on("second-instance", (_event, argv) => {
     const deepLinkUrl = argv.find(a => a.startsWith(`${PROTOCOL}://`));
     if (deepLinkUrl) handleDeepLink(deepLinkUrl);
-    if (mainWindow) {
+    if (isMainWindowUsable()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
@@ -95,6 +105,13 @@ function createWindow() {
       event.preventDefault();
       mainWindow.hide();
     }
+  });
+
+  // Clear the reference once the window is actually destroyed (real quit,
+  // update install/relaunch, etc.) so later handlers never call methods
+  // on a dead BrowserWindow — see isMainWindowUsable() above.
+  mainWindow.on("closed", () => {
+    mainWindow = null;
   });
 }
 
@@ -151,7 +168,7 @@ function createTray() {
     {
       label: "Open Tracked 26",
       click: () => {
-        if (!mainWindow) return;
+        if (!isMainWindowUsable()) return;
         mainWindow.show();
         mainWindow.focus();
       }
@@ -175,7 +192,7 @@ function createTray() {
   tray.setContextMenu(contextMenu);
 
   tray.on("click", () => {
-    if (!mainWindow) return;
+    if (!isMainWindowUsable()) return;
     if (mainWindow.isVisible()) {
       mainWindow.focus();
     } else {
@@ -315,7 +332,7 @@ function runStartupUpdateCheck() {
 
 function handleDeepLink(url) {
   if (!url || !url.startsWith(`${PROTOCOL}://`)) return;
-  if (mainWindow) {
+  if (isMainWindowUsable()) {
     mainWindow.webContents.send("deep-link", url);
     if (mainWindow.isMinimized()) mainWindow.restore();
     if (!mainWindow.isVisible()) mainWindow.show();
@@ -349,7 +366,7 @@ app.on("open-url", (event, url) => {
 // checks triggered from the renderer — where the main window is already
 // visible, so a "Restart now / Later" prompt makes sense.
 function sendUpdateStatus(status) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  if (isMainWindowUsable()) {
     mainWindow.webContents.send("update-status", status);
   }
 }
@@ -383,6 +400,13 @@ function setupBackgroundAutoUpdater() {
 
   autoUpdater.on("update-downloaded", async (info) => {
     sendUpdateStatus({ status: "ready", version: info.version });
+
+    if (!isMainWindowUsable()) {
+      // Window disappeared mid-download (e.g. user quit) — just let
+      // autoInstallOnAppQuit handle it next launch instead of showing a
+      // dialog attached to a dead window.
+      return;
+    }
 
     const { response } = await dialog.showMessageBox(mainWindow, {
       type: "info",
@@ -502,7 +526,7 @@ function createWidgetWindow() {
   // we last received from the main window so it doesn't sit blank while
   // waiting for the next update.
   widgetWindow.webContents.once("did-finish-load", () => {
-    if (lastWidgetState && widgetWindow) {
+    if (lastWidgetState && widgetWindow && !widgetWindow.isDestroyed()) {
       widgetWindow.webContents.send("widget-state", lastWidgetState);
     }
   });
@@ -528,10 +552,10 @@ ipcMain.on("set-show-widget", (_event, value) => {
   if (showDesktopWidget) {
     if (!widgetWindow) {
       createWidgetWindow();
-    } else {
+    } else if (!widgetWindow.isDestroyed()) {
       widgetWindow.show();
     }
-  } else if (widgetWindow) {
+  } else if (widgetWindow && !widgetWindow.isDestroyed()) {
     widgetWindow.hide();
   }
 });
@@ -549,8 +573,8 @@ ipcMain.on("widget-state-update", (_event, data) => {
 // window so it can uncheck the Settings toggle to match reality.
 ipcMain.on("widget-close-clicked", () => {
   showDesktopWidget = false;
-  if (widgetWindow) widgetWindow.hide();
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.hide();
+  if (isMainWindowUsable()) {
     mainWindow.webContents.send("widget-closed-externally");
   }
 });
@@ -607,7 +631,7 @@ app.whenReady().then(async () => {
   await Promise.all([runStartupUpdateCheck(), mainWindowReady()]);
 
   closeSplashWindow();
-  if (!startedHidden) {
+  if (!startedHidden && isMainWindowUsable()) {
     mainWindow.show();
   }
 
@@ -618,14 +642,14 @@ app.whenReady().then(async () => {
   // Windows/Linux: if THIS launch of the app was itself triggered by the
   // OS opening a tracked26://... link (cold start, not already running).
   const deepLinkUrl = process.argv.find(a => a.startsWith(`${PROTOCOL}://`));
-  if (deepLinkUrl) {
+  if (deepLinkUrl && isMainWindowUsable()) {
     mainWindow.webContents.once("did-finish-load", () => handleDeepLink(deepLinkUrl));
   }
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
-    } else if (mainWindow) {
+    } else if (isMainWindowUsable()) {
       mainWindow.show();
       mainWindow.focus();
     }
