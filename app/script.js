@@ -74,6 +74,7 @@ const DEFAULT_STATE = {
     ]
   },
   progress: {},   // "Subject::Chapter" -> { lectures, notes, shortNotes, revision, tests, status, lastRevisedDate }
+  dashboardChecklist: {}, // "Subject::Chapter" -> boolean — quick-glance checklist shown on the Dashboard, independent of the lectures/notes/etc. progress tracking
   heatmap: {},  // "YYYY-MM-DD" -> 0-4 intensity level
   months: [
     { name: "Aug", items: [
@@ -108,6 +109,7 @@ function normalizeState(parsed) {
     updatedAt: parsed.updatedAt ?? 0,
     subjects: parsed.subjects ?? base.subjects,
     progress: parsed.progress ?? {},
+    dashboardChecklist: parsed.dashboardChecklist ?? {},
     heatmap: parsed.heatmap ?? {},
     months: parsed.months ?? base.months,
     testLog: parsed.testLog ?? [],
@@ -173,6 +175,16 @@ function computeStatus(p) {
 
 function statusLabel(s) {
   return { "done": "Done", "in-progress": "In Progress", "not-started": "Not Started" }[s];
+}
+
+/* ---------------- Dashboard checklist (quick-glance, separate from progress tracking) ---------------- */
+function isDashChecked(subject, chapter) {
+  return !!state.dashboardChecklist[key(subject, chapter)];
+}
+
+function setDashChecked(subject, chapter, on) {
+  state.dashboardChecklist[key(subject, chapter)] = on;
+  saveState();
 }
 
 function subjectCompletion(subject) {
@@ -270,11 +282,37 @@ function renderNextTestPanel() {
   else if (days === 0) dayLabel = "Today";
   else dayLabel = `${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ago`;
 
-  const chapterCount = Object.values(state.nextTestSyllabus || {})
-    .reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0);
+  // Flatten { subject: [chapters] } into a single list of { subject, chapter }
+  // entries, in subject order, so the checklist below can render them.
+  const syllabusEntries = [];
+  Object.keys(state.nextTestSyllabus || {}).forEach(subject => {
+    (state.nextTestSyllabus[subject] || []).forEach(chapter => {
+      syllabusEntries.push({ subject, chapter });
+    });
+  });
+  const chapterCount = syllabusEntries.length;
+  const checkedCount = syllabusEntries.filter(({ subject, chapter }) => isDashChecked(subject, chapter)).length;
   const syllabusHint = chapterCount
-    ? `${chapterCount} chapter${chapterCount === 1 ? "" : "s"} in syllabus`
+    ? `${checkedCount} of ${chapterCount} chapter${chapterCount === 1 ? "" : "s"} checked`
     : "No chapters marked yet";
+
+  const multiSubject = new Set(syllabusEntries.map(e => e.subject)).size > 1;
+  const checklistHtml = chapterCount
+    ? `
+      <div class="next-test-checklist" id="nextTestChecklist">
+        ${syllabusEntries.map(({ subject, chapter }) => {
+          const checked = isDashChecked(subject, chapter);
+          return `
+            <label class="checklist-row${checked ? " is-checked" : ""}">
+              <input type="checkbox" data-subject="${escapeAttr(subject)}" data-chapter="${escapeAttr(chapter)}" ${checked ? "checked" : ""}>
+              <span class="checklist-chapter-name">${escapeHtml(chapter)}</span>
+              ${multiSubject ? `<span class="checklist-subject-tag">${escapeHtml(subject)}</span>` : ""}
+            </label>
+          `;
+        }).join("")}
+      </div>
+    `
+    : "";
 
   body.innerHTML = `
     <div class="next-test-info">
@@ -283,7 +321,16 @@ function renderNextTestPanel() {
     </div>
     <div class="next-test-countdown${days < 0 ? " is-past" : ""}">${escapeHtml(dayLabel)}</div>
     <div class="next-test-syllabus-hint">${escapeHtml(syllabusHint)}</div>
+    ${checklistHtml}
   `;
+
+  body.querySelectorAll(".next-test-checklist input[type='checkbox']").forEach(el => {
+    el.addEventListener("change", e => {
+      const { subject, chapter } = e.target.dataset;
+      setDashChecked(subject, chapter, e.target.checked);
+      renderNextTestPanel();
+    });
+  });
 }
 
 document.getElementById("goToNextTestBtn")?.addEventListener("click", () => switchView("nextTest"));
@@ -775,12 +822,14 @@ function removeChapterWithUndo(subject, idx) {
   if (!confirm(`Remove chapter "${chapter}"? This also deletes its tracked progress.`)) return;
 
   const removedProgress = state.progress[key(subject, chapter)];
+  const removedDashChecked = state.dashboardChecklist[key(subject, chapter)];
   const picked = getSyllabus(subject);
   const pickedIdx = picked.indexOf(chapter);
   const wasPicked = pickedIdx !== -1;
   if (wasPicked) picked.splice(pickedIdx, 1);
   state.subjects[subject].splice(idx, 1);
   delete state.progress[key(subject, chapter)];
+  delete state.dashboardChecklist[key(subject, chapter)];
   saveState();
   renderSubjectView(subject);
   renderOverviewGrid();
@@ -790,6 +839,7 @@ function removeChapterWithUndo(subject, idx) {
   showToast(`"${chapter}" removed.`, "Undo", () => {
     state.subjects[subject].splice(idx, 0, chapter);
     if (removedProgress) state.progress[key(subject, chapter)] = removedProgress;
+    if (removedDashChecked) state.dashboardChecklist[key(subject, chapter)] = removedDashChecked;
     if (wasPicked) getSyllabus(subject).push(chapter);
     saveState();
     renderSubjectView(subject);
@@ -855,6 +905,10 @@ function renderSubjectView(subject) {
     if (state.progress[oldKey] && oldKey !== newKey) {
       state.progress[newKey] = state.progress[oldKey];
       delete state.progress[oldKey];
+    }
+    if (state.dashboardChecklist[oldKey] !== undefined && oldKey !== newKey) {
+      state.dashboardChecklist[newKey] = state.dashboardChecklist[oldKey];
+      delete state.dashboardChecklist[oldKey];
     }
     const picked = getSyllabus(subject);
     const pickedIdx = picked.indexOf(oldName);
